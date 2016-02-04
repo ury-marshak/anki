@@ -5,6 +5,8 @@
 import re
 import sre_constants
 
+import time
+
 from anki.utils import ids2str, splitFields, joinFields, intTime, fieldChecksum, stripHTMLMedia
 from anki.consts import *
 from anki.hooks import *
@@ -43,7 +45,8 @@ class Finder(object):
         sql = self._query(preds, order)
         try:
             res = self.col.db.list(sql, *args)
-        except:
+        except: # Exception as e:   #2
+            print e
             # invalid grouping
             return []
         if rev:
@@ -306,12 +309,14 @@ select distinct(n.id) from cards c, notes n where c.nid=n.id and """+preds
         try:
             if prop == "ease":
                 val = float(val)
+            elif (prop == "cardmod") or (prop == "notemod"):
+                val = val
             else:
                 val = int(val)
         except ValueError:
             return
         # is prop valid?
-        if prop not in ("due", "ivl", "reps", "lapses", "ease"):
+        if prop not in ("due", "ivl", "reps", "lapses", "ease", "cardmod", "notemod"):
             return
         # query
         q = []
@@ -322,6 +327,17 @@ select distinct(n.id) from cards c, notes n where c.nid=n.id and """+preds
         elif prop == "ease":
             prop = "factor"
             val = int(val*1000)
+        elif (prop == "cardmod") or (prop == "notemod"):
+            if prop == "cardmod":
+                prop = "c.mod"
+            elif prop == "notemod":
+                prop = "n.mod"
+
+            try:
+                val=time.mktime( time.strptime(val, "%Y-%m-%d"))
+            except ValueError as ve:
+                print ve
+                return
         q.append("(%s %s %s)" % (prop, cmp, val))
         return " and ".join(q)
 
