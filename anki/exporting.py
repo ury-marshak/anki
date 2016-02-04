@@ -21,11 +21,13 @@ class Exporter(object):
 
     def escapeText(self, text):
         "Escape newlines, tabs, CSS and quotechar."
-        text = text.replace("\n", "<br>")
+        # fixme: we should probably quote fields with newlines
+        # instead of converting them to spaces
+        text = text.replace("\n", " ")
         text = text.replace("\t", " " * 8)
         text = re.sub("(?i)<style>.*?</style>", "", text)
         if "\"" in text:
-        	text = "\"" + text.replace("\"", "\"\"") + "\""
+            text = "\"" + text.replace("\"", "\"\"") + "\""
         return text
 
     def cardIds(self):
@@ -201,7 +203,12 @@ class AnkiExporter(Exporter):
             if self.mediaDir:
                 for fname in os.listdir(self.mediaDir):
                     if fname.startswith("_"):
-                        media[fname] = True
+                        # Scan all models in mids for reference to fname
+                        for m in self.src.models.all():
+                            if int(m['id']) in mids:
+                                if self._modelHasMedia(m, fname):
+                                    media[fname] = True
+                                    break
         self.mediaFiles = media.keys()
         self.dst.crt = self.src.crt
         # todo: tags?
@@ -217,6 +224,16 @@ class AnkiExporter(Exporter):
     
     def removeSystemTags(self, tags):
         return self.src.tags.remFromStr("marked leech", tags)
+
+    def _modelHasMedia(self, model, fname):
+        # First check the styling
+        if fname in model["css"]:
+            return True
+        # If no reference to fname then check the templates as well
+        for t in model["tmpls"]:
+            if fname in t["qfmt"] or fname in t["afmt"]:
+                return True
+        return False
 
 # Packaged Anki decks
 ######################################################################
