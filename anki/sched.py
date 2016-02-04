@@ -973,8 +973,7 @@ select id from cards where did in %s and queue = 2 and due <= ? limit ?)"""
         self.col.log(self.col.db.list("select id from cards where %s" % lim))
         # move out of cram queue
         self.col.db.execute("""
-update cards set did = odid, queue = (case when type = 1 then 0
-else type end), type = (case when type = 1 then 0 else type end),
+update cards set did = odid,
 due = odue, odue = 0, odid = 0, usn = ? where %s""" % lim,
                             self.col.usn())
 
@@ -1012,18 +1011,19 @@ due = odue, odue = 0, odid = 0, usn = ? where %s""" % lim,
         t = intTime(); u = self.col.usn()
         for c, id in enumerate(ids):
             # start at -100000 so that reviews are all due
-            data.append((did, -100000+c, u, id))
+            data.append((did, c, u, id))
         # due reviews stay in the review queue. careful: can't use
         # "odid or did", as sqlite converts to boolean
-        queue = """
-(case when type=2 and (case when odue then odue <= %d else due <= %d end)
- then 2 else 0 end)"""
-        queue %= (self.today, self.today)
+        #         queue = """
+        # (case when type=2 and (case when odue then odue <= %d else due <= %d end)
+        #  then 2 else 0 end)"""
+        #         queue %= (self.today, self.today)
+
         self.col.db.executemany("""
 update cards set
 odid = (case when odid then odid else did end),
 odue = (case when odue then odue else due end),
-did = ?, queue = %s, due = ?, usn = ? where id = ?""" % queue, data)
+did = ?, due = ?, usn = ? where id = ?""" , data)
 
     def _dynIvlBoost(self, card):
         assert card.odid and card.type == 2
