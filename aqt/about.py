@@ -7,16 +7,11 @@ import aqt.forms
 from aqt import appVersion
 from aqt.utils import openLink
 
-def show(parent):
-    dialog = QDialog(parent)
+def show(mw):
+    dialog = QDialog(mw)
+    mw.setupDialogGC(dialog)
     abt = aqt.forms.about.Ui_About()
     abt.setupUi(dialog)
-    abt.label.page().setLinkDelegationPolicy(QWebPage.DelegateAllLinks)
-    def onLink(url):
-        openLink(url.toString())
-    parent.connect(abt.label,
-                    SIGNAL("linkClicked(QUrl)"),
-                    onLink)
     abouttext = "<center><img src='qrc:/icons/anki-logo-thin.png'></center>"
     abouttext += '<p>' + _("Anki is a friendly, intelligent spaced learning \
 system. It's free and open source.")
@@ -27,12 +22,12 @@ system. It's free and open source.")
     abouttext += (_("<a href='%s'>Visit website</a>") % aqt.appWebsite) + \
 "</span>"
     abouttext += '<p>' + _("Written by Damien Elmes, with patches, translation,\
- testing and design from:<p>%(cont)s") % {'cont': u"""Aaron Harsh, Ádám Szegi,
-Alex Fraser, Andreas Klauer, Andrew Wright, Bernhard Ibertsberger, C. van Rooyen, Charlene Barina,
-Christian Krause, Christian Rusche, David Smith, Dave Druelinger, Dotan Cohen,
-Emilio Wuerges, Emmanuel Jarri, Frank Harper, Gregor Skumavc, H. Mijail,
+ testing and design from:<p>%(cont)s") % {'cont': """Aaron Harsh, Ádám Szegi, Alex Fraser,
+Andreas Klauer, Andrew Wright, Aristotelis P., Bernhard Ibertsberger, C. van Rooyen, Charlene Barina,
+Christian Krause, Christian Rusche, David Smith, Dave Druelinger, Dmitry Mikheev, Dotan Cohen,
+Emilio Wuerges, Emmanuel Jarri, Frank Harper, Gregor Skumavc, H. Mijail, Guillem Palau Salvà, Henrik Enggaard Hansen,
 Houssam Salem, Ian Lewis, Immanuel Asmus, Iroiro, Jarvik7,
-Jin Eun-Deok, Jo Nakashima, Johanna Lindh, Julien Baley, Jussi Määttä, Kieran Clancy, LaC, Laurent Steffan,
+Jin Eun-Deok, Jo Nakashima, Johanna Lindh, Joseph Lorimer, Julien Baley, Jussi Määttä, Kieran Clancy, LaC, Laurent Steffan,
 Luca Ban, Luciano Esposito, Marco Giancotti, Marcus Rubeus, Mari Egami, Michael Jürges, Mark Wilbur,
 Matthew Duggan, Matthew Holtz, Meelis Vasser, Michael Keppler, Michael
 Montague, Michael Penkov, Michal Čadil, Morteza Salehi, Nathanael Law, Nick Cook, Niklas

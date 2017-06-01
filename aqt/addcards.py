@@ -9,13 +9,14 @@ from aqt.utils import saveGeom, restoreGeom, showWarning, askUser, shortcut, \
     tooltip, openHelp, addCloseShortcut, downArrow
 from anki.sound import clearAudioQueue
 from anki.hooks import addHook, remHook, runHook
-from anki.utils import stripHTMLMedia, isMac
+from anki.utils import stripHTMLMedia, htmlToTextLine, isMac
 import aqt.editor, aqt.modelchooser, aqt.deckchooser
 
 class AddCards(QDialog):
 
     def __init__(self, mw):
         QDialog.__init__(self, None, Qt.Window)
+        mw.setupDialogGC(self)
         self.mw = mw
         self.form = aqt.forms.addcards.Ui_Dialog()
         self.form.setupUi(self)
@@ -53,30 +54,28 @@ class AddCards(QDialog):
         ar = QDialogButtonBox.ActionRole
         # add
         self.addButton = bb.addButton(_("Add"), ar)
+        self.addButton.clicked.connect(self.addCards)
         self.addButton.setShortcut(QKeySequence("Ctrl+Return"))
         self.addButton.setToolTip(shortcut(_("Add (shortcut: ctrl+enter)")))
-        self.connect(self.addButton, SIGNAL("clicked()"), self.addCards)
         # close
         self.closeButton = QPushButton(_("Close"))
         self.closeButton.setAutoDefault(False)
-        bb.addButton(self.closeButton,
-                                        QDialogButtonBox.RejectRole)
+        bb.addButton(self.closeButton, QDialogButtonBox.RejectRole)
         # help
-        self.helpButton = QPushButton(_("Help"))
+        self.helpButton = QPushButton(_("Help"), clicked=self.helpRequested)
         self.helpButton.setAutoDefault(False)
         bb.addButton(self.helpButton,
                                         QDialogButtonBox.HelpRole)
-        self.connect(self.helpButton, SIGNAL("clicked()"), self.helpRequested)
         # history
         b = bb.addButton(
-            _("History")+ u" "+downArrow(), ar)
+            _("History")+ " "+downArrow(), ar)
         if isMac:
             sc = "Ctrl+Shift+H"
         else:
             sc = "Ctrl+H"
         b.setShortcut(QKeySequence(sc))
         b.setToolTip(_("Shortcut: %s") % shortcut(sc))
-        self.connect(b, SIGNAL("clicked()"), self.onHistory)
+        b.clicked.connect(self.onHistory)
         b.setEnabled(False)
         self.historyButton = b
 
@@ -90,8 +89,8 @@ class AddCards(QDialog):
         oldNote = self.editor.note
         note = self.setupNewNote(set=False)
         if oldNote:
-            oldFields = oldNote.keys()
-            newFields = note.keys()
+            oldFields = list(oldNote.keys())
+            newFields = list(note.keys())
             for n, f in enumerate(note.model()['flds']):
                 fieldName = f['name']
                 try:
@@ -107,6 +106,7 @@ class AddCards(QDialog):
                         note.fields[n] = oldNote.fields[n]
                     except IndexError:
                         pass
+            self.removeTempNote(oldNote)
         self.editor.currentField = 0
         self.editor.setNote(note, focus=True)
 
@@ -136,24 +136,30 @@ class AddCards(QDialog):
         self.mw.col._remNotes([note.id])
 
     def addHistory(self, note):
-        txt = stripHTMLMedia(",".join(note.fields))[:30]
-        self.history.insert(0, (note.id, txt))
+        self.history.insert(0, note.id)
         self.history = self.history[:15]
         self.historyButton.setEnabled(True)
 
     def onHistory(self):
         m = QMenu(self)
-        for nid, txt in self.history:
-            a = m.addAction(_("Edit %s") % txt)
-            a.connect(a, SIGNAL("triggered()"),
-                      lambda nid=nid: self.editHistory(nid))
+        for nid in self.history:
+            if self.mw.col.findNotes("nid:%s" % nid):
+                fields = self.mw.col.getNote(nid).fields
+                txt = htmlToTextLine(", ".join(fields))
+                if len(txt) > 30:
+                    txt = txt[:30] + "..."
+                a = m.addAction(_("Edit \"%s\"") % txt)
+                a.triggered.connect(lambda b, nid=nid: self.editHistory(nid))
+            else:
+                a = m.addAction(_("(Note deleted)"))
+                a.setEnabled(False)
         runHook("AddCards.onHistory", self, m)
         m.exec_(self.historyButton.mapToGlobal(QPoint(0,0)))
 
     def editHistory(self, nid):
         browser = aqt.dialogs.open("Browser", self.mw)
         browser.form.searchEdit.lineEdit().setText("nid:%d" % nid)
-        browser.onSearch()
+        browser.onSearchActivated()
 
     def addNote(self, note):
         note.model()['did'] = self.deckChooser.selectedId()
@@ -180,7 +186,9 @@ question on all cards."""), help="AddItems")
         return note
 
     def addCards(self):
-        self.editor.saveNow()
+        self.editor.saveNow(self._addCards)
+
+    def _addCards(self):
         self.editor.saveAddModeVars()
         note = self.editor.note
         note = self.addNote(note)

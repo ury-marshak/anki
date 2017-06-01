@@ -3,7 +3,7 @@
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 from aqt.qt import *
-import re, os, sys, urllib, subprocess
+import re, os, sys, urllib.request, urllib.parse, urllib.error, subprocess
 import aqt
 from anki.sound import stripSounds
 from anki.utils import isWin, isMac, invalidFilename
@@ -18,15 +18,15 @@ def openLink(link):
     tooltip(_("Loading..."), period=1000)
     QDesktopServices.openUrl(QUrl(link))
 
-def showWarning(text, parent=None, help=""):
+def showWarning(text, parent=None, help="", title="Anki"):
     "Show a small warning with an OK button."
-    return showInfo(text, parent, help, "warning")
+    return showInfo(text, parent, help, "warning", title=title)
 
-def showCritical(text, parent=None, help=""):
+def showCritical(text, parent=None, help="", title="Anki"):
     "Show a small critical error with an OK button."
-    return showInfo(text, parent, help, "critical")
+    return showInfo(text, parent, help, "critical", title=title)
 
-def showInfo(text, parent=False, help="", type="info"):
+def showInfo(text, parent=False, help="", type="info", title="Anki"):
     "Show a small info window with an OK button."
     if parent is False:
         parent = aqt.mw.app.activeWindow() or aqt.mw
@@ -40,19 +40,21 @@ def showInfo(text, parent=False, help="", type="info"):
     mb.setText(text)
     mb.setIcon(icon)
     mb.setWindowModality(Qt.WindowModal)
+    mb.setWindowTitle(title)
     b = mb.addButton(QMessageBox.Ok)
     b.setDefault(True)
     if help:
         b = mb.addButton(QMessageBox.Help)
-        b.connect(b, SIGNAL("clicked()"), lambda: openHelp(help))
+        b.clicked.connect(lambda: openHelp(help))
         b.setAutoDefault(False)
     return mb.exec_()
 
-def showText(txt, parent=None, type="text", run=True, geomKey=None):
+def showText(txt, parent=None, type="text", run=True, geomKey=None, \
+        minWidth=500, minHeight=400, title="Anki"):
     if not parent:
         parent = aqt.mw.app.activeWindow() or aqt.mw
     diag = QDialog(parent)
-    diag.setWindowTitle("Anki")
+    diag.setWindowTitle(title)
     layout = QVBoxLayout(diag)
     diag.setLayout(layout)
     text = QTextEdit()
@@ -68,9 +70,13 @@ def showText(txt, parent=None, type="text", run=True, geomKey=None):
         if geomKey:
             saveGeom(diag, geomKey)
         QDialog.reject(diag)
-    diag.connect(box, SIGNAL("rejected()"), onReject)
-    diag.setMinimumHeight(400)
-    diag.setMinimumWidth(500)
+    box.rejected.connect(onReject)
+    def onFinish():
+        if geomKey:
+            saveGeom(diag, geomKey)
+    box.accepted.connect(onFinish)
+    diag.setMinimumHeight(minHeight)
+    diag.setMinimumWidth(minWidth)
     if geomKey:
         restoreGeom(diag, geomKey)
     if run:
@@ -78,7 +84,8 @@ def showText(txt, parent=None, type="text", run=True, geomKey=None):
     else:
         return diag, box
 
-def askUser(text, parent=None, help="", defaultno=False, msgfunc=None):
+def askUser(text, parent=None, help="", defaultno=False, msgfunc=None, \
+        title="Anki"):
     "Show a yes/no question. Return true if yes."
     if not parent:
         parent = aqt.mw.app.activeWindow()
@@ -92,8 +99,7 @@ def askUser(text, parent=None, help="", defaultno=False, msgfunc=None):
             default = QMessageBox.No
         else:
             default = QMessageBox.Yes
-        r = msgfunc(parent, "Anki", text, sb,
-                                 default)
+        r = msgfunc(parent, title, text, sb, default)
         if r == QMessageBox.Help:
 
             openHelp(help)
@@ -103,10 +109,10 @@ def askUser(text, parent=None, help="", defaultno=False, msgfunc=None):
 
 class ButtonedDialog(QMessageBox):
 
-    def __init__(self, text, buttons, parent=None, help=""):
+    def __init__(self, text, buttons, parent=None, help="", title="Anki"):
         QDialog.__init__(self, parent)
         self.buttons = []
-        self.setWindowTitle("Anki")
+        self.setWindowTitle(title)
         self.help = help
         self.setIcon(QMessageBox.Warning)
         self.setText(text)
@@ -133,22 +139,22 @@ class ButtonedDialog(QMessageBox):
     def setDefault(self, idx):
         self.setDefaultButton(self.buttons[idx])
 
-def askUserDialog(text, buttons, parent=None, help=""):
+def askUserDialog(text, buttons, parent=None, help="", title="Anki"):
     if not parent:
         parent = aqt.mw
-    diag = ButtonedDialog(text, buttons, parent, help)
+    diag = ButtonedDialog(text, buttons, parent, help, title=title)
     return diag
 
 class GetTextDialog(QDialog):
 
-    def __init__(self, parent, question, help=None, edit=None, default=u"",
-                 title="Anki"):
+    def __init__(self, parent, question, help=None, edit=None, default="", \
+                 title="Anki", minWidth=400):
         QDialog.__init__(self, parent)
         self.setWindowTitle(title)
         self.question = question
         self.help = help
         self.qlabel = QLabel(question)
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(minWidth)
         v = QVBoxLayout()
         v.addWidget(self.qlabel)
         if not edit:
@@ -164,13 +170,10 @@ class GetTextDialog(QDialog):
         b = QDialogButtonBox(buts)
         v.addWidget(b)
         self.setLayout(v)
-        self.connect(b.button(QDialogButtonBox.Ok),
-                     SIGNAL("clicked()"), self.accept)
-        self.connect(b.button(QDialogButtonBox.Cancel),
-                     SIGNAL("clicked()"), self.reject)
+        b.button(QDialogButtonBox.Ok).clicked.connect(self.accept)
+        b.button(QDialogButtonBox.Cancel).clicked.connect(self.reject)
         if help:
-            self.connect(b.button(QDialogButtonBox.Help),
-                         SIGNAL("clicked()"), self.helpRequested)
+            b.button(QDialogButtonBox.Help).clicked.connect(self.helpRequested)
 
     def accept(self):
         return QDialog.accept(self)
@@ -181,21 +184,26 @@ class GetTextDialog(QDialog):
     def helpRequested(self):
         openHelp(self.help)
 
-def getText(prompt, parent=None, help=None, edit=None, default=u"", title="Anki"):
+def getText(prompt, parent=None, help=None, edit=None, default="",
+            title="Anki", geomKey=None, **kwargs):
     if not parent:
         parent = aqt.mw.app.activeWindow() or aqt.mw
     d = GetTextDialog(parent, prompt, help=help, edit=edit,
-                      default=default, title=title)
+                      default=default, title=title, **kwargs)
     d.setWindowModality(Qt.WindowModal)
+    if geomKey:
+        restoreGeom(d, geomKey)
     ret = d.exec_()
-    return (unicode(d.l.text()), ret)
+    if geomKey and ret:
+        saveGeom(d, geomKey)
+    return (str(d.l.text()), ret)
 
 def getOnlyText(*args, **kwargs):
     (s, r) = getText(*args, **kwargs)
     if r:
         return s
     else:
-        return u""
+        return ""
 
 # fixme: these utilities could be combined into a single base class
 def chooseList(prompt, choices, startrow=0, parent=None):
@@ -212,7 +220,7 @@ def chooseList(prompt, choices, startrow=0, parent=None):
     c.setCurrentRow(startrow)
     l.addWidget(c)
     bb = QDialogButtonBox(QDialogButtonBox.Ok)
-    bb.connect(bb, SIGNAL("accepted()"), d, SLOT("accept()"))
+    bb.accepted.connect(d.accept)
     l.addWidget(bb)
     d.exec_()
     return c.currentRow()
@@ -221,7 +229,8 @@ def getTag(parent, deck, question, tags="user", **kwargs):
     from aqt.tagedit import TagEdit
     te = TagEdit(parent)
     te.setCol(deck)
-    ret = getText(question, parent, edit=te, **kwargs)
+    ret = getText(question, parent, edit=te,
+                  geomKey='getTag', **kwargs)
     te.hideCompleter()
     return ret
 
@@ -237,9 +246,6 @@ def getFile(parent, title, cb, filter="*.*", dir=None, key=None):
     else:
         dirkey = None
     d = QFileDialog(parent)
-    # fix #233 crash
-    if isMac:
-        d.setOptions(QFileDialog.DontUseNativeDialog)
     d.setFileMode(QFileDialog.ExistingFile)
     if os.path.exists(dir):
         d.setDirectory(dir)
@@ -247,16 +253,14 @@ def getFile(parent, title, cb, filter="*.*", dir=None, key=None):
     d.setNameFilter(filter)
     ret = []
     def accept():
-        # work around an osx crash
-        #aqt.mw.app.processEvents()
-        file = unicode(list(d.selectedFiles())[0])
+        file = str(list(d.selectedFiles())[0])
         if dirkey:
             dir = os.path.dirname(file)
             aqt.mw.pm.profile[dirkey] = dir
         if cb:
             cb(file)
         ret.append(file)
-    d.connect(d, SIGNAL("accepted()"), accept)
+    d.accepted.connect(accept)
     d.exec_()
     return ret and ret[0]
 
@@ -266,9 +270,9 @@ def getSaveFile(parent, title, dir_description, key, ext, fname=None):
     config_key = dir_description + 'Directory'
     base = aqt.mw.pm.profile.get(config_key, aqt.mw.pm.base)
     path = os.path.join(base, fname)
-    file = unicode(QFileDialog.getSaveFileName(
-        parent, title, path, u"{0} (*{1})".format(key, ext),
-        options=QFileDialog.DontConfirmOverwrite))
+    file = QFileDialog.getSaveFileName(
+        parent, title, path, "{0} (*{1})".format(key, ext),
+        options=QFileDialog.DontConfirmOverwrite)[0]
     if file:
         # add extension
         if not file.lower().endswith(ext):
@@ -331,12 +335,6 @@ def restoreHeader(widget, key):
 def mungeQA(col, txt):
     txt = col.media.escapeImages(txt)
     txt = stripSounds(txt)
-    # osx webkit doesn't understand font weight 600
-    txt = re.sub("font-weight: *600", "font-weight:bold", txt)
-    if isMac:
-        # custom fonts cause crashes on osx at the moment
-        txt = txt.replace("font-face", "invalid")
-
     return txt
 
 def applyStyles(widget):
@@ -344,26 +342,19 @@ def applyStyles(widget):
     if os.path.exists(p):
         widget.setStyleSheet(open(p).read())
 
+# this will go away in the future - please use mw.baseHTML() instead
 def getBase(col):
-    base = None
-    mdir = col.media.dir()
-    if isWin and not mdir.startswith("\\\\"):
-        prefix = u"file:///"
-    else:
-        prefix = u"file://"
-    mdir = mdir.replace("\\", "/")
-    base = prefix + unicode(
-        urllib.quote(mdir.encode("utf-8")),
-        "utf-8") + "/"
-    return '<base href="%s">' % base
+    from aqt import mw
+    return mw.baseHTML()
 
 def openFolder(path):
     if isWin:
-        if isinstance(path, unicode):
-            path = path.encode(sys.getfilesystemencoding())
-        subprocess.Popen(["explorer", path])
+        subprocess.Popen(["explorer", "file://"+path])
     else:
+        oldlpath = os.environ.pop("LD_LIBRARY_PATH", None)
         QDesktopServices.openUrl(QUrl("file://" + path))
+        if oldlpath:
+            os.environ["LD_LIBRARY_PATH"] = oldlpath
 
 def shortcut(key):
     if isMac:
@@ -380,14 +371,13 @@ def addCloseShortcut(widg):
     if not isMac:
         return
     widg._closeShortcut = QShortcut(QKeySequence("Ctrl+W"), widg)
-    widg.connect(widg._closeShortcut, SIGNAL("activated()"),
-                 widg, SLOT("reject()"))
+    widg._closeShortcut.activated.connect(widg.reject)
 
 def downArrow():
     if isWin:
-        return u"▼"
+        return "▼"
     # windows 10 is lacking the smaller arrow on English installs
-    return u"▾"
+    return "▾"
 
 # Tooltips
 ######################################################################

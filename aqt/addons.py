@@ -1,13 +1,13 @@
 # Copyright: Damien Elmes <anki@ichi2.net>
 # -*- coding: utf-8 -*-
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
-
+import io
 import sys, os, traceback
-from cStringIO import StringIO
+from io import StringIO
 import zipfile
 from aqt.qt import *
 from aqt.utils import showInfo, openFolder, isWin, openLink, \
-    askUser, restoreGeom, saveGeom, showWarning
+    askUser, restoreGeom, saveGeom, showWarning, tooltip
 from zipfile import ZipFile
 import aqt.forms
 import aqt
@@ -17,13 +17,13 @@ from anki.lang import _
 # in the future, it would be nice to save the addon id and unzippped file list
 # to the config so that we can clear up all files and check for updates
 
-class AddonManager(object):
+class AddonManager:
 
     def __init__(self, mw):
         self.mw = mw
-        f = self.mw.form; s = SIGNAL("triggered()")
-        self.mw.connect(f.actionOpenPluginFolder, s, self.onOpenAddonFolder)
-        self.mw.connect(f.actionDownloadSharedPlugin, s, self.onGetAddons)
+        f = self.mw.form
+        f.actionOpenPluginFolder.triggered.connect(self.onOpenAddonFolder)
+        f.actionDownloadSharedPlugin.triggered.connect(self.onGetAddons)
         self._menus = []
         if isWin:
             self.clearAddonCache()
@@ -35,10 +35,21 @@ class AddonManager(object):
         return [f for f in os.listdir(self.addonsFolder())
                 if f.endswith(".py")]
 
+    def directories(self):
+        return [d for d in os.listdir(self.addonsFolder())
+                if not d.startswith('.') and
+                not d == "__pycache__" and
+                os.path.isdir(os.path.join(self.addonsFolder(), d))]
+
     def loadAddons(self):
         for file in self.files():
             try:
                 __import__(file.replace(".py", ""))
+            except:
+                traceback.print_exc()
+        for directory in self.directories():
+            try:
+                __import__(directory)
             except:
                 traceback.print_exc()
         self.rebuildAddonsMenu()
@@ -46,7 +57,7 @@ class AddonManager(object):
     # Menus
     ######################################################################
 
-    def onOpenAddonFolder(self, path=None):
+    def onOpenAddonFolder(self, checked, path=None):
         if path is None:
             path = self.addonsFolder()
         openFolder(path)
@@ -58,14 +69,10 @@ class AddonManager(object):
             m = self.mw.form.menuPlugins.addMenu(
                 os.path.splitext(file)[0])
             self._menus.append(m)
-            a = QAction(_("Edit..."), self.mw)
             p = os.path.join(self.addonsFolder(), file)
-            self.mw.connect(a, SIGNAL("triggered()"),
-                            lambda p=p: self.onEdit(p))
+            a = QAction(_("Edit..."), self.mw, triggered=lambda x, y=p: self.onEdit(y))
             m.addAction(a)
-            a = QAction(_("Delete..."), self.mw)
-            self.mw.connect(a, SIGNAL("triggered()"),
-                            lambda p=p: self.onRem(p))
+            a = QAction(_("Delete..."), self.mw, triggered=lambda x, y=p: self.onRem(y))
             m.addAction(a)
 
     def onEdit(self, path):
@@ -73,13 +80,12 @@ class AddonManager(object):
         frm = aqt.forms.editaddon.Ui_Dialog()
         frm.setupUi(d)
         d.setWindowTitle(os.path.basename(path))
-        frm.text.setPlainText(unicode(open(path).read(), "utf8"))
-        d.connect(frm.buttonBox, SIGNAL("accepted()"),
-                  lambda: self.onAcceptEdit(path, frm))
+        frm.text.setPlainText(open(path).read())
+        frm.buttonBox.accepted.connect(lambda: self.onAcceptEdit(path, frm))
         d.exec_()
 
     def onAcceptEdit(self, path, frm):
-        open(path, "w").write(frm.text.toPlainText().encode("utf8"))
+        open(path, "wb").write(frm.text.toPlainText().encode("utf8"))
         showInfo(_("Edits saved. Please restart Anki."))
 
     def onRem(self, path):
@@ -94,8 +100,6 @@ class AddonManager(object):
 
     def addonsFolder(self):
         dir = self.mw.pm.addonFolder()
-        if isWin:
-            dir = dir.encode(sys.getfilesystemencoding())
         return dir
 
     def clearAddonCache(self):
@@ -115,6 +119,10 @@ class AddonManager(object):
     ######################################################################
 
     def onGetAddons(self):
+        showInfo("""\
+Most add-ons built for Anki 2.0.x will not work on this version of Anki \
+until they are updated. To avoid errors during startup, please only \
+download add-ons that say they support Anki 2.1.x in the description.""")
         GetAddons(self.mw)
 
     def install(self, data, fname):
@@ -125,7 +133,7 @@ class AddonManager(object):
             return
         # .zip file
         try:
-            z = ZipFile(StringIO(data))
+            z = ZipFile(io.BytesIO(data))
         except zipfile.BadZipfile:
             showWarning(_("The download was corrupt. Please try again."))
             return
@@ -146,7 +154,7 @@ class GetAddons(QDialog):
         self.form.setupUi(self)
         b = self.form.buttonBox.addButton(
             _("Browse"), QDialogButtonBox.ActionRole)
-        self.connect(b, SIGNAL("clicked()"), self.onBrowse)
+        b.clicked.connect(self.onBrowse)
         restoreGeom(self, "getaddons", adjustSize=True)
         self.exec_()
         saveGeom(self, "getaddons")
@@ -156,11 +164,26 @@ class GetAddons(QDialog):
 
     def accept(self):
         QDialog.accept(self)
-        # create downloader thread
-        ret = download(self.mw, self.form.code.text())
-        if not ret:
+
+        # get codes
+        try:
+            ids = [int(n) for n in self.form.code.text().split()]
+        except ValueError:
+            showWarning(_("Invalid code."))
             return
-        data, fname = ret
-        self.mw.addonManager.install(data, fname)
+
+        errors = []
+
+        self.mw.progress.start(immediate=True)
+        for n in ids:
+            ret = download(self.mw, n)
+            if ret[0] == "error":
+                errors.append(_("Error downloading %(id)s: %(error)s") % dict(id=n, error=ret[1]))
+                continue
+            data, fname = ret
+            self.mw.addonManager.install(data, fname)
         self.mw.progress.finish()
-        showInfo(_("Download successful. Please restart Anki."))
+        if not errors:
+            tooltip(_("Download successful. Please restart Anki."), period=3000)
+        else:
+            showWarning("\n".join(errors))

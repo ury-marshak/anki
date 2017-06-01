@@ -2,13 +2,12 @@
 # Copyright: Damien Elmes <anki@ichi2.net>
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-from __future__ import division
 import re
 import os
 import random
 import time
 import math
-import htmlentitydefs
+from html.entities import name2codepoint
 import subprocess
 import tempfile
 import shutil
@@ -18,27 +17,9 @@ import locale
 from hashlib import sha1
 import platform
 import traceback
+import json
 
 from anki.lang import _, ngettext
-
-
-if sys.version_info[1] < 5:
-    def format_string(a, b):
-        return a % b
-    locale.format_string = format_string
-
-try:
-    import simplejson as json
-    # make sure simplejson's loads() always returns unicode
-    # we don't try to support .load()
-    origLoads = json.loads
-    def loads(s, *args, **kwargs):
-        if not isinstance(s, unicode):
-            s = unicode(s, "utf8")
-        return origLoads(s, *args, **kwargs)
-    json.loads = loads
-except ImportError:
-    import json
 
 # Time handling
 ##############################################################################
@@ -144,11 +125,11 @@ def fmtFloat(float_value, point=1):
 
 # HTML
 ##############################################################################
-reStyle = re.compile("(?s)<style.*?>.*?</style>")
-reScript = re.compile("(?s)<script.*?>.*?</script>")
+reStyle = re.compile("(?si)<style.*?>.*?</style>")
+reScript = re.compile("(?si)<script.*?>.*?</script>")
 reTag = re.compile("<.*?>")
 reEnts = re.compile("&#?\w+;")
-reMedia = re.compile("<img[^>]+src=[\"']?([^\"'>]+)[\"']?[^>]*>")
+reMedia = re.compile("(?i)<img[^>]+src=[\"']?([^\"'>]+)[\"']?[^>]*>")
 
 def stripHTML(s):
     s = reStyle.sub("", s)
@@ -172,6 +153,17 @@ def minimizeHTML(s):
                '<u>\\1</u>', s)
     return s
 
+def htmlToTextLine(s):
+    s = s.replace("<br>", " ")
+    s = s.replace("<br />", " ")
+    s = s.replace("<div>", " ")
+    s = s.replace("\n", " ")
+    s = re.sub("\[sound:[^]]+\]", "", s)
+    s = re.sub("\[\[type:[^]]+\]\]", "", s)
+    s = stripHTMLMedia(s)
+    s = s.strip()
+    return s
+
 def entsToTxt(html):
     # entitydefs defines nbsp as \xa0 instead of a standard space, so we
     # replace it first
@@ -182,15 +174,15 @@ def entsToTxt(html):
             # character reference
             try:
                 if text[:3] == "&#x":
-                    return unichr(int(text[3:-1], 16))
+                    return chr(int(text[3:-1], 16))
                 else:
-                    return unichr(int(text[2:-1]))
+                    return chr(int(text[2:-1]))
             except ValueError:
                 pass
         else:
             # named entity
             try:
-                text = unichr(htmlentitydefs.name2codepoint[text[1:-1]])
+                text = chr(name2codepoint[text[1:-1]])
             except KeyError:
                 pass
         return text # leave as is
@@ -222,8 +214,7 @@ def maxID(db):
     "Return the first safe ID to use."
     now = intTime(1000)
     for tbl in "cards", "notes":
-        now = max(now, db.scalar(
-                "select max(id) from %s" % tbl))
+        now = max(now, db.scalar("select max(id) from %s" % tbl) or 0)
     return now + 1
 
 # used in ankiweb
@@ -271,7 +262,7 @@ def splitFields(string):
 ##############################################################################
 
 def checksum(data):
-    if isinstance(data, unicode):
+    if isinstance(data, str):
         data = data.encode("utf-8")
     return sha1(data).hexdigest()
 
@@ -292,8 +283,7 @@ def tmpdir():
             shutil.rmtree(_tmpdir)
         import atexit
         atexit.register(cleanup)
-        _tmpdir = unicode(os.path.join(tempfile.gettempdir(), "anki_temp"), \
-                sys.getfilesystemencoding())
+        _tmpdir = os.path.join(tempfile.gettempdir(), "anki_temp")
     if not os.path.exists(_tmpdir):
         os.mkdir(_tmpdir)
     return _tmpdir
@@ -351,6 +341,7 @@ def call(argv, wait=True, **kwargs):
 
 isMac = sys.platform.startswith("darwin")
 isWin = sys.platform.startswith("win32")
+isLin = not isMac and not isWin
 
 invalidFilenameChars = ":*?\"<>|"
 
@@ -390,7 +381,7 @@ def platDesc():
 # Debugging
 ##############################################################################
 
-class TimedLog(object):
+class TimedLog:
     def __init__(self):
         self._last = time.time()
     def log(self, s):

@@ -46,8 +46,10 @@ class Anki2Importer(Importer):
         self._importCards()
         self._importStaticMedia()
         self._postImport()
+        self.dst.db.setAutocommit(True)
         self.dst.db.execute("vacuum")
         self.dst.db.execute("analyze")
+        self.dst.db.setAutocommit(False)
 
     # Notes
     ######################################################################
@@ -150,6 +152,7 @@ class Anki2Importer(Importer):
         # as the schemas differ and we already have a note with a different
         # note type, this note needs a new guid
         if not self.dupeOnSchemaChange:
+            self._ignoredGuids[origGuid] = True
             return False
         while True:
             note[GUID] = incGuid(note[GUID])
@@ -403,7 +406,7 @@ insert or ignore into revlog values (?,?,?,?,?,?,?,?,?)""", revlog)
     ######################################################################
 
     def _postImport(self):
-        for did in self._decks.values():
+        for did in list(self._decks.values()):
             self.col.sched.maybeRandomizeDeck(did)
         # make sure new position is correct
         self.dst.conf['nextPos'] = self.dst.db.scalar(

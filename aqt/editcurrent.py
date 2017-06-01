@@ -23,9 +23,7 @@ class EditCurrent(QDialog):
         self.setWindowTitle(_("Edit Current"))
         self.setMinimumHeight(400)
         self.setMinimumWidth(500)
-        self.connect(self,
-                     SIGNAL("rejected()"),
-                     self.onSave)
+        self.rejected.connect(self.onSave)
         self.form.buttonBox.button(QDialogButtonBox.Close).setShortcut(
                 QKeySequence("Ctrl+Return"))
         self.editor = aqt.editor.Editor(self.mw, self.form.fieldsArea, self)
@@ -53,8 +51,10 @@ class EditCurrent(QDialog):
         self.editor.setNote(n)
 
     def onSave(self):
+        self.editor.saveNow(self._onSave)
+
+    def _onSave(self):
         remHook("reset", self.onReset)
-        self.editor.saveNow()
         r = self.mw.reviewer
         try:
             r.card.load()

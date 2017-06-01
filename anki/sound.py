@@ -5,7 +5,7 @@
 import re, sys, threading, time, subprocess, os, atexit
 import  random
 from anki.hooks import addHook
-from anki.utils import  tmpdir, isWin, isMac
+from anki.utils import  tmpdir, isWin, isMac, isLin
 
 # Shared utils
 ##########################################################################
@@ -22,10 +22,33 @@ def stripSounds(text):
 def hasSound(text):
     return re.search(_soundReg, text) is not None
 
+# Packaged commands
 ##########################################################################
 
-processingSrc = u"rec.wav"
-processingDst = u"rec.mp3"
+# return modified command array that points to bundled command, and return
+# required environment
+def _packagedCmd(cmd):
+    cmd = cmd[:]
+    env = os.environ.copy()
+    if "LD_LIBRARY_PATH" in env:
+        del env['LD_LIBRARY_PATH']
+    if isMac:
+        dir = os.path.dirname(os.path.abspath(__file__))
+        exeDir = os.path.abspath(dir + "/../../Resources/audio")
+    else:
+        exeDir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        if isWin and not cmd[0].endswith(".exe"):
+            cmd[0] += ".exe"
+    path = os.path.join(exeDir, cmd[0])
+    if not os.path.exists(path):
+        return cmd, env
+    cmd[0] = path
+    return cmd, env
+
+##########################################################################
+
+processingSrc = "rec.wav"
+processingDst = "rec.mp3"
 processingChain = []
 recFiles = []
 
@@ -44,13 +67,6 @@ if isWin:
 else:
     si = None
 
-if isMac:
-    # make sure lame, which is installed in /usr/local/bin, is in the path
-    os.environ['PATH'] += ":" + "/usr/local/bin"
-    dir = os.path.dirname(os.path.abspath(__file__))
-    dir = os.path.abspath(dir + "/../../../..")
-    os.environ['PATH'] += ":" + dir + "/audio"
-
 def retryWait(proc):
     # osx throws interrupted system call errors frequently
     while 1:
@@ -62,14 +78,9 @@ def retryWait(proc):
 # Mplayer settings
 ##########################################################################
 
+mplayerCmd = ["mplayer", "-really-quiet", "-noautosub"]
 if isWin:
-    mplayerCmd = ["mplayer.exe", "-ao", "win32"]
-    dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-    os.environ['PATH'] += ";" + dir
-    os.environ['PATH'] += ";" + dir + "\\..\\win\\top" # for testing
-else:
-    mplayerCmd = ["mplayer"]
-mplayerCmd += ["-really-quiet", "-noautosub"]
+    mplayerCmd += ["-ao", "win32"]
 
 # Mplayer in slave mode
 ##########################################################################
@@ -92,7 +103,8 @@ class MplayerMonitor(threading.Thread):
             # clearing queue?
             if mplayerClear and self.mplayer:
                 try:
-                    self.mplayer.stdin.write("stop\n")
+                    self.mplayer.stdin.write(b"stop\n")
+                    self.mplayer.stdin.flush()
                 except:
                     # mplayer quit by user (likely video)
                     self.deadPlayers.append(self.mplayer)
@@ -110,18 +122,20 @@ class MplayerMonitor(threading.Thread):
                     continue
                 if mplayerClear:
                     mplayerClear = False
-                    extra = ""
+                    extra = b""
                 else:
-                    extra = " 1"
-                cmd = 'loadfile "%s"%s\n' % (item, extra)
+                    extra = b" 1"
+                cmd = b'loadfile "%s"%s\n' % (item.encode("utf8"), extra)
                 try:
                     self.mplayer.stdin.write(cmd)
+                    self.mplayer.stdin.flush()
                 except:
                     # mplayer has quit and needs restarting
                     self.deadPlayers.append(self.mplayer)
                     self.mplayer = None
                     self.startProcess()
                     self.mplayer.stdin.write(cmd)
+                    self.mplayer.stdin.flush()
                 # if we feed mplayer too fast it loses files
                 time.sleep(1)
             # wait() on finished processes. we don't want to block on the
@@ -138,7 +152,8 @@ class MplayerMonitor(threading.Thread):
         if not self.mplayer:
             return
         try:
-            self.mplayer.stdin.write("quit\n")
+            self.mplayer.stdin.write(b"quit\n")
+            self.mplayer.stdin.flush()
             self.deadPlayers.append(self.mplayer)
         except:
             pass
@@ -147,10 +162,11 @@ class MplayerMonitor(threading.Thread):
     def startProcess(self):
         try:
             cmd = mplayerCmd + ["-slave", "-idle"]
-            devnull = file(os.devnull, "w")
+            cmd, env = _packagedCmd(cmd)
             self.mplayer = subprocess.Popen(
                 cmd, startupinfo=si, stdin=subprocess.PIPE,
-                stdout=devnull, stderr=devnull)
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env=env)
         except OSError:
             mplayerEvt.clear()
             raise Exception("Did you install mplayer?")
@@ -169,9 +185,6 @@ def queueMplayer(path):
         f.close()
         # it wants unix paths, too!
         path = name.replace("\\", "/")
-        path = path.encode(sys.getfilesystemencoding())
-    else:
-        path = path.encode("utf-8")
     mplayerQueue.append(path)
     mplayerEvt.set()
 
@@ -203,18 +216,14 @@ addHook("unloadProfile", stopMplayer)
 # PyAudio recording
 ##########################################################################
 
-try:
+import pyaudio
+import wave
 
-    import pyaudio
-    import wave
+PYAU_FORMAT = pyaudio.paInt16
+PYAU_CHANNELS = 1
+PYAU_INPUT_INDEX = None
 
-    PYAU_FORMAT = pyaudio.paInt16
-    PYAU_CHANNELS = 1
-    PYAU_INPUT_INDEX = None
-except:
-    pass
-
-class _Recorder(object):
+class _Recorder:
 
     def postprocess(self, encode=True):
         self.encode = encode
@@ -223,13 +232,14 @@ class _Recorder(object):
             if not self.encode and c[0] == 'lame':
                 continue
             try:
-                ret = retryWait(subprocess.Popen(c, startupinfo=si))
+                cmd, env = _packagedCmd(c)
+                ret = retryWait(subprocess.Popen(cmd, startupinfo=si, env=env))
             except:
                 ret = True
             if ret:
                 raise Exception(_(
                     "Error running %s") %
-                                u" ".join(c))
+                                " ".join(cmd))
 
 class PyAudioThreadedRecorder(threading.Thread):
 
@@ -239,11 +249,7 @@ class PyAudioThreadedRecorder(threading.Thread):
 
     def run(self):
         chunk = 1024
-        try:
-            p = pyaudio.PyAudio()
-        except NameError:
-            raise Exception(
-                "Pyaudio not installed (recording not supported on OSX10.3)")
+        p = pyaudio.PyAudio()
 
         rate = int(p.get_default_input_device_info()['defaultSampleRate'])
 
@@ -254,20 +260,17 @@ class PyAudioThreadedRecorder(threading.Thread):
                         input_device_index=PYAU_INPUT_INDEX,
                         frames_per_buffer=chunk)
 
-        all = []
+        data = b""
         while not self.finish:
             try:
-                data = stream.read(chunk)
-            except IOError, e:
+                data += stream.read(chunk)
+            except IOError as e:
                 if e[1] == pyaudio.paInputOverflowed:
-                    data = None
+                    pass
                 else:
                     raise
-            if data:
-                all.append(data)
         stream.close()
         p.terminate()
-        data = ''.join(all)
         wf = wave.open(processingSrc, 'wb')
         wf.setnchannels(PYAU_CHANNELS)
         wf.setsampwidth(p.get_sample_size(PYAU_FORMAT))
@@ -295,7 +298,7 @@ class PyAudioRecorder(_Recorder):
 
     def file(self):
         if self.encode:
-            tgt = u"rec%d.mp3" % time.time()
+            tgt = "rec%d.mp3" % time.time()
             os.rename(processingDst, tgt)
             return tgt
         else:
