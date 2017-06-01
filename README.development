@@ -64,3 +64,7 @@ Or a way with git bash and perl:
     system. Typical paths would be:
     <python-path> = C:\\Python27\\python.exe
     <pyuic-path-string> = C:\\Python27\\Lib\\site-packages\\PyQt4\\uic\\pyuic.py
+
+
+OSX
+export PATH="/opt/local/Library/Frameworks/Python.framework/Versions/2.7/bin:$PATH"
