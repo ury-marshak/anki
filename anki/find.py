@@ -46,7 +46,7 @@ class Finder:
         try:
             res = self.col.db.list(sql, *args)
         except: # Exception as e:   #2
-            print e
+            print(e)
             # invalid grouping
             return []
         if rev:
@@ -341,7 +341,7 @@ select distinct(n.id) from cards c, notes n where c.nid=n.id and """+preds
             try:
                 val=time.mktime( time.strptime(val, "%Y-%m-%d"))
             except ValueError as ve:
-                print ve
+                print(ve)
                 return
         q.append("(%s %s %s)" % (prop, cmp, val))
         return " and ".join(q)
