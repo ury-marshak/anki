@@ -46,12 +46,12 @@ class SyncManager(QObject):
             auth=auth, media=self.pm.profile['syncMedia'])
         t.event.connect(self.onEvent)
         self.label = _("Connecting...")
-        prog = self.mw.progress.start(immediate=True, label=self.label, cancellable=True)
+        prog = self.mw.progress.start(immediate=True, label=self.label)
         self.sentBytes = self.recvBytes = 0
         self._updateLabel()
         self.thread.start()
         while not self.thread.isFinished():
-            if prog.ankiCancel:
+            if prog.wantCancel:
                 self.thread.flagAbort()
                 # make sure we don't display 'upload success' msg
                 self._didFullUp = False
@@ -113,7 +113,7 @@ automatically."""))
             elif t == "sanity":
                 m = _("Checking...")
             elif t == "findMedia":
-                m = _("Syncing Media...")
+                m = _("Checking media...")
             elif t == "upgradeRequired":
                 showText(_("""\
 Please visit AnkiWeb, upgrade your deck, then try again."""))
@@ -188,9 +188,9 @@ AnkiWeb is too busy at the moment. Please try again in a few minutes.""")
         elif "code: 413" in err:
             return _("Your collection or a media file is too large to sync.")
         elif "EOF occurred in violation of protocol" in err:
-            return _("Error establishing a secure connection. This is usually caused by antivirus, firewall or VPN software, or problems with your ISP.")
+            return _("Error establishing a secure connection. This is usually caused by antivirus, firewall or VPN software, or problems with your ISP.") + " (eof)"
         elif "certificate verify failed" in err:
-            return _("Error establishing a secure connection. This is usually caused by antivirus, firewall or VPN software, or problems with your ISP.")
+            return _("Error establishing a secure connection. This is usually caused by antivirus, firewall or VPN software, or problems with your ISP.") + " (invalid cert)"
         return err
 
     def _getUserPass(self):
@@ -376,7 +376,7 @@ class SyncThread(QThread):
             log = traceback.format_exc()
             err = repr(str(e))
             if ("Unable to find the server" in err or
-                "Errno 2" in err):
+                "Errno 2" in err or "getaddrinfo" in err):
                 self.fireEvent("offline")
             elif "sync cancelled" in err:
                 pass
@@ -447,7 +447,7 @@ class SyncThread(QThread):
             raise
         if ret == "noChanges":
             self.fireEvent("noMediaChanges")
-        elif ret == "sanityCheckFailed":
+        elif ret == "sanityCheckFailed" or ret == "corruptMediaDB":
             self.fireEvent("mediaSanity")
         else:
             self.fireEvent("mediaSuccess")

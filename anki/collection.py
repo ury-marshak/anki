@@ -14,7 +14,7 @@ import traceback
 
 from anki.lang import _, ngettext
 from anki.utils import ids2str, fieldChecksum, stripHTML, \
-    intTime, splitFields, joinFields, maxID, json
+    intTime, splitFields, joinFields, maxID, json, devMode
 from anki.hooks import  runFilter, runHook
 from anki.sched import Scheduler
 from anki.models import ModelManager
@@ -834,13 +834,13 @@ and queue = 0""", intTime(), self.usn())
         buf = "[%s] %s:%s(): %s" % (intTime(), os.path.basename(path), fn,
                                      ", ".join([customRepr(x) for x in args]))
         self._logHnd.write(buf + "\n")
-        if os.environ.get("ANKIDEV"):
+        if devMode:
             print(buf)
 
     def _openLog(self):
         if not self._debugLog:
             return
-        lpath = re.sub("\.anki2$", ".log", self.path)
+        lpath = re.sub(r"\.anki2$", ".log", self.path)
         if os.path.exists(lpath) and os.path.getsize(lpath) > 10*1024*1024:
             lpath2 = lpath + ".old"
             if os.path.exists(lpath2):
@@ -849,4 +849,15 @@ and queue = 0""", intTime(), self.usn())
         self._logHnd = open(lpath, "a", encoding="utf8")
 
     def _closeLog(self):
+        if not self._debugLog:
+            return
+        self._logHnd.close()
         self._logHnd = None
+
+    # Card Flags
+    ##########################################################################
+
+    def setUserFlag(self, flag, cids):
+        assert 0 <= flag <= 7
+        self.db.execute("update cards set flags = (flags & ~?) | ? where id in %s" %
+                        ids2str(cids), 0b111, flag)

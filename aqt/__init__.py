@@ -38,18 +38,34 @@ except ImportError as e:
 
 from anki.utils import checksum
 
-# Dialog manager - manages modeless windows
-##########################################################################emacs
+# Dialog manager
+##########################################################################
+# ensures only one copy of the window is open at once, and provides
+# a way for dialogs to clean up asynchronously when collection closes
+
+# to integrate a new window:
+# - add it to _dialogs
+# - define close behaviour, by either:
+# -- setting silentlyClose=True to have it close immediately
+# -- define a closeWithCallback() method
+# - have the window opened via aqt.dialogs.open(<name>, self)
+
+#- make preferences modal? cmd+q does wrong thing
+
+
+from aqt import addcards, browser, editcurrent, stats, about, \
+    preferences
 
 class DialogManager:
 
-    def __init__(self):
-        from aqt import addcards, browser, editcurrent
-        self._dialogs = {
-            "AddCards": [addcards.AddCards, None],
-            "Browser": [browser.Browser, None],
-            "EditCurrent": [editcurrent.EditCurrent, None],
-        }
+    _dialogs = {
+        "AddCards": [addcards.AddCards, None],
+        "Browser": [browser.Browser, None],
+        "EditCurrent": [editcurrent.EditCurrent, None],
+        "DeckStats": [stats.DeckStats, None],
+        "About": [about.show, None],
+        "Preferences": [preferences.Preferences, None],
+    }
 
     def open(self, name, *args):
         (creator, instance) = self._dialogs[name]
@@ -63,18 +79,36 @@ class DialogManager:
             self._dialogs[name][1] = instance
             return instance
 
-    def close(self, name):
+    def markClosed(self, name):
         self._dialogs[name] = [self._dialogs[name][0], None]
 
-    def closeAll(self):
-        "True if all closed successfully."
-        for (n, (creator, instance)) in list(self._dialogs.items()):
-            if instance:
-                if not instance.canClose():
-                    return False
-                instance.forceClose = True
+    def allClosed(self):
+        return not any(x[1] for x in self._dialogs.values())
+
+    def closeAll(self, onsuccess):
+        # can we close immediately?
+        if self.allClosed():
+            onsuccess()
+            return
+
+        # ask all windows to close and await a reply
+        for (name, (creator, instance)) in self._dialogs.items():
+            if not instance:
+                continue
+
+            def callback():
+                if self.allClosed():
+                    onsuccess()
+                else:
+                    # still waiting for others to close
+                    pass
+
+            if getattr(instance, "silentlyClose", False):
                 instance.close()
-                self.close(n)
+                callback()
+            else:
+                instance.closeWithCallback(callback)
+
         return True
 
 dialogs = DialogManager()
@@ -199,23 +233,37 @@ def run():
                              "Please notify support of this error:\n\n"+
                              traceback.format_exc())
 
-def _run():
+def _run(argv=None, exec=True):
+    """Start AnkiQt application or reuse an existing instance if one exists.
+
+    If the function is invoked with exec=False, the AnkiQt will not enter
+    the main event loop - instead the application object will be returned.
+
+    The 'exec' and 'argv' arguments will be useful for testing purposes.
+
+    If no 'argv' is supplied then 'sys.argv' will be used.
+    """
     global mw
 
+    if argv is None:
+        argv = sys.argv
+
     # parse args
-    opts, args = parseArgs(sys.argv)
+    opts, args = parseArgs(argv)
     opts.base = opts.base or ""
     opts.profile = opts.profile or ""
-
-    # on osx we'll need to add the qt plugins to the search path
 
     # work around pyqt loading wrong GL library
     if isLin:
         import ctypes
         ctypes.CDLL('libGL.so.1', ctypes.RTLD_GLOBAL)
 
+    # opt in to full hidpi support?
+    if not os.environ.get("ANKI_NOHIGHDPI"):
+        QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+
     # create the app
-    app = AnkiApp(sys.argv)
+    app = AnkiApp(argv)
     QCoreApplication.setApplicationName("Anki")
     if app.secondInstance():
         # we've signaled the primary instance, so we should close
@@ -245,7 +293,12 @@ environment points to a valid, writable folder.""")
     # remaining pm init
     pm.ensureProfile()
 
+    print("This is an BETA build - please do not package it up for Linux distributions")
+
     # load the main window
     import aqt.main
-    mw = aqt.main.AnkiQt(app, pm, args)
-    app.exec_()
+    mw = aqt.main.AnkiQt(app, pm, opts, args)
+    if exec:
+        app.exec()
+    else:
+        return app

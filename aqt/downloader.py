@@ -10,23 +10,23 @@ from anki.hooks import addHook, remHook
 import aqt
 
 def download(mw, code):
-    "Download addon/deck from AnkiWeb. Caller must start & stop progress diag."
+    "Download addon from AnkiWeb. Caller must start & stop progress diag."
     # create downloading thread
     thread = Downloader(code)
+    done = False
     def onRecv():
-        try:
-            mw.progress.update(label="%dKB downloaded" % (thread.recvTotal/1024))
-        except NameError:
-            # some users report the following error on long downloads
-            # NameError: free variable 'mw' referenced before assignment in enclosing scope
-            # unsure why this is happening, but guard against throwing the
-            # error
-            pass
+        if done:
+            return
+        mw.progress.update(label="%dKB downloaded" % (thread.recvTotal/1024))
     thread.recv.connect(onRecv)
     thread.start()
     while not thread.isFinished():
         mw.app.processEvents()
         thread.wait(100)
+
+    # make sure any posted events don't fire after we return
+    done = True
+
     if not thread.error:
         # success
         return thread.data, thread.fname
@@ -53,11 +53,11 @@ class Downloader(QThread):
         client = AnkiRequestsClient()
         try:
             resp = client.get(
-                aqt.appShared + "download/%d" % self.code)
+                aqt.appShared + "download/%s?v=2.1" % self.code)
             if resp.status_code == 200:
                 data = client.streamContent(resp)
             elif resp.status_code in (403,404):
-                self.error = _("Invalid code")
+                self.error = _("Invalid code, or add-on not available for your version of Anki.")
                 return
             else:
                 self.error = _("Error downloading: %s" % resp.status_code)

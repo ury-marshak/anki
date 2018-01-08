@@ -22,6 +22,7 @@ class Preferences(QDialog):
         self.form.buttonBox.button(QDialogButtonBox.Help).setAutoDefault(False)
         self.form.buttonBox.button(QDialogButtonBox.Close).setAutoDefault(False)
         self.form.buttonBox.helpRequested.connect(lambda: openHelp("profileprefs"))
+        self.silentlyClose = True
         self.setupLang()
         self.setupCollection()
         self.setupNetwork()
@@ -40,6 +41,7 @@ class Preferences(QDialog):
         self.mw.pm.save()
         self.mw.reset()
         self.done(0)
+        aqt.dialogs.markClosed("Preferences")
 
     def reject(self):
         self.accept()
@@ -78,6 +80,7 @@ class Preferences(QDialog):
         f.timeLimit.setValue(qc['timeLim']/60.0)
         f.showEstimates.setChecked(qc['estTimes'])
         f.showProgress.setChecked(qc['dueCounts'])
+        f.nightMode.setChecked(qc.get("nightMode", False))
         f.newSpread.addItems(list(c.newCardSchedulingLabels().values()))
         f.newSpread.setCurrentIndex(qc['newSpread'])
         f.useCurrent.setCurrentIndex(int(not qc.get("addToCur", True)))
@@ -89,6 +92,7 @@ class Preferences(QDialog):
         qc['dueCounts'] = f.showProgress.isChecked()
         qc['estTimes'] = f.showEstimates.isChecked()
         qc['newSpread'] = f.newSpread.currentIndex()
+        qc['nightMode'] = f.nightMode.isChecked()
         qc['timeLim'] = f.timeLimit.value()*60
         qc['collapseTime'] = f.lrnCutoff.value()*60
         qc['addToCur'] = not f.useCurrent.currentIndex()
@@ -150,22 +154,7 @@ Not currently enabled; click the sync button in the main window to enable."""))
 
     def setupOptions(self):
         self.form.pastePNG.setChecked(self.prof.get("pastePNG", False))
-        self.form.profilePass.clicked.connect(self.onProfilePass)
 
     def updateOptions(self):
         self.prof['pastePNG'] = self.form.pastePNG.isChecked()
 
-    def onProfilePass(self):
-        pw, ret = getText(_("""\
-Lock account with password, or leave blank:"""))
-        if not ret:
-            return
-        if not pw:
-            self.prof['key'] = None
-            return
-        pw2, ret = getText(_("Confirm password:"))
-        if not ret:
-            return
-        if pw != pw2:
-            showWarning(_("Passwords didn't match"))
-        self.prof['key'] = self.mw.pm._pwhash(pw)

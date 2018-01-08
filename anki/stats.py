@@ -6,7 +6,6 @@ import time
 import datetime
 import json
 
-import anki.js
 from anki.utils import fmtTimeSpan, ids2str
 from anki.lang import _, ngettext
 
@@ -108,6 +107,7 @@ class CollectionStats:
         self.height = 200
         self.wholeCollection = False
 
+    # assumes jquery & plot are available in document
     def report(self, type=0):
         # 0=days, 1=weeks, 2=months
         self.type = type
@@ -122,8 +122,7 @@ class CollectionStats:
         txt += self._section(self.easeGraph())
         txt += self._section(self.cardGraph())
         txt += self._section(self.footer())
-        return "<script>%s\n</script><center>%s</center>" % (
-            anki.js.jquery+anki.js.plot, txt)
+        return "<center>%s</center>" % txt
 
     def _section(self, txt):
         return "<div class=section>%s</div>" % txt
@@ -167,8 +166,8 @@ from revlog where id > ? """+lim, (self.col.sched.dayCutoff-86400)*1000)
         def bold(s):
             return "<b>"+str(s)+"</b>"
         msgp1 = ngettext("<!--studied-->%d card", "<!--studied-->%d cards", cards) % cards
-        b += _("Studied %(a)s in %(b)s today.") % dict(
-            a=bold(msgp1), b=bold(fmtTimeSpan(thetime, unit=1)))
+        b += _("Studied %(a)s %(b)s today.") % dict(
+            a=bold(msgp1), b=bold(fmtTimeSpan(thetime, unit=1, inTime=True)))
         # again/pass count
         b += "<br>" + _("Again count: %s") % bold(failed)
         if cards:
@@ -195,11 +194,11 @@ where lastIvl >= 21 and id > ?"""+lim, (self.col.sched.dayCutoff-86400)*1000)
 
     def dueGraph(self):
         if self.type == 0:
-            start = 0; end = 31; chunk = 1;
+            start, end, chunk = 0, 31, 1
         elif self.type == 1:
-            start = 0; end = 52; chunk = 7
+            start, end, chunk = 0, 52, 7
         elif self.type == 2:
-            start = 0; end = None; chunk = 30
+            start, end, chunk = 0, None, 30
         d = self._due(start, end, chunk)
         yng = []
         mtr = []
@@ -737,7 +736,7 @@ where did in %s """ % self._limit())
         info += _('''\
 A card's <i>ease</i> is the size of the next interval \
 when you answer "good" on a review.''')
-        txt = self._title(_("Cards Types"),
+        txt = self._title(_("Card Types"),
                           _("The division of cards in your deck(s)."))
         txt += "<table width=%d><tr><td>%s</td><td>%s</td></table>" % (
             self.width,

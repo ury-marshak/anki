@@ -19,7 +19,8 @@ def test_anki2_mediadupes():
     mid = n.model()['id']
     tmp.addNote(n)
     # add that sound to media folder
-    open(os.path.join(tmp.media.dir(), "foo.mp3"), "w").write("foo")
+    with open(os.path.join(tmp.media.dir(), "foo.mp3"), "w") as f:
+        f.write("foo")
     tmp.close()
     # it should be imported correctly into an empty deck
     empty = getEmptyCol()
@@ -36,7 +37,8 @@ def test_anki2_mediadupes():
     # if the local file content is different, and import should trigger a
     # rename
     empty.remCards(empty.db.list("select id from cards"))
-    open(os.path.join(empty.media.dir(), "foo.mp3"), "w").write("bar")
+    with open(os.path.join(empty.media.dir(), "foo.mp3"), "w") as f:
+        f.write("bar")
     imp = Anki2Importer(empty, tmp.path)
     imp.run()
     assert sorted(os.listdir(empty.media.dir())) == [
@@ -46,7 +48,8 @@ def test_anki2_mediadupes():
     # if the localized media file already exists, we rewrite the note and
     # media
     empty.remCards(empty.db.list("select id from cards"))
-    open(os.path.join(empty.media.dir(), "foo.mp3"), "w").write("bar")
+    with open(os.path.join(empty.media.dir(), "foo.mp3"), "w") as f:
+        f.write("bar")
     imp = Anki2Importer(empty, tmp.path)
     imp.run()
     assert sorted(os.listdir(empty.media.dir())) == [
@@ -70,42 +73,11 @@ def test_apkg():
     assert os.listdir(tmp.media.dir()) == ['foo.wav']
     # but if the local file has different data, it will rename
     tmp.remCards(tmp.db.list("select id from cards"))
-    open(os.path.join(tmp.media.dir(), "foo.wav"), "w").write("xyz")
+    with open(os.path.join(tmp.media.dir(), "foo.wav"), "w") as f:
+        f.write("xyz")
     imp = AnkiPackageImporter(tmp, apkg)
     imp.run()
     assert len(os.listdir(tmp.media.dir())) == 2
-
-def test_anki2_diffmodels():
-    # create a new empty deck
-    dst = getEmptyCol()
-    # import the 1 card version of the model
-    tmp = getUpgradeDeckPath("diffmodels2-1.apkg")
-    imp = AnkiPackageImporter(dst, tmp)
-    imp.dupeOnSchemaChange = True
-    imp.run()
-    before = dst.noteCount()
-    # repeating the process should do nothing
-    imp = AnkiPackageImporter(dst, tmp)
-    imp.dupeOnSchemaChange = True
-    imp.run()
-    assert before == dst.noteCount()
-    # then the 2 card version
-    tmp = getUpgradeDeckPath("diffmodels2-2.apkg")
-    imp = AnkiPackageImporter(dst, tmp)
-    imp.dupeOnSchemaChange = True
-    imp.run()
-    after = dst.noteCount()
-    # as the model schemas differ, should have been imported as new model
-    assert after == before + 1
-    # and the new model should have both cards
-    assert dst.cardCount() == 3
-    # repeating the process should do nothing
-    imp = AnkiPackageImporter(dst, tmp)
-    imp.dupeOnSchemaChange = True
-    imp.run()
-    after = dst.noteCount()
-    assert after == before + 1
-    assert dst.cardCount() == 3
 
 def test_anki2_diffmodel_templates():
     # different from the above as this one tests only the template text being

@@ -7,6 +7,7 @@ import re
 import traceback
 import zipfile
 import json
+import unicodedata
 
 from aqt.qt import *
 import anki.importing as importing
@@ -365,29 +366,34 @@ with a different browser.""")
 
 def setupApkgImport(mw, importer):
     base = os.path.basename(importer.file).lower()
-    full = (base == "collection.apkg") or re.match("backup-.*\\.apkg", base)
+    full = ((base == "collection.apkg") or
+            re.match("backup-.*\\.apkg", base) or
+            base.endswith(".colpkg"))
     if not full:
         # adding
         return True
     backup = re.match("backup-.*\\.apkg", base)
-    if not askUser(_("""\
+    if not mw.restoringBackup and not askUser(_("""\
 This will delete your existing collection and replace it with the data in \
-the file you're importing. Are you sure?"""), msgfunc=QMessageBox.warning):
+the file you're importing. Are you sure?"""), msgfunc=QMessageBox.warning,
+                                              defaultno=True):
         return False
     # schedule replacement; don't do it immediately as we may have been
     # called as part of the startup routine
-    mw.progress.start(immediate=True)
     mw.progress.timer(
         100, lambda mw=mw, f=importer.file: replaceWithApkg(mw, f, backup), False)
 
 def replaceWithApkg(mw, file, backup):
-    # unload collection, which will also trigger a backup
-    mw.unloadCollection()
+    mw.unloadCollection(lambda: _replaceWithApkg(mw, file, backup))
+
+def _replaceWithApkg(mw, file, backup):
+    mw.progress.start(immediate=True)
     # overwrite collection
     z = zipfile.ZipFile(file)
     try:
         z.extract("collection.anki2", mw.pm.profileFolder())
     except:
+        mw.progress.finish()
         showWarning(_("The provided file is not a valid .apkg file."))
         return
     # because users don't have a backup of media, it's safer to import new
@@ -400,7 +406,7 @@ def replaceWithApkg(mw, file, backup):
         mw.progress.update(ngettext("Processed %d media file",
                                     "Processed %d media files", n) % n)
         size = z.getinfo(cStr).file_size
-        dest = os.path.join(d, file)
+        dest = os.path.join(d, unicodedata.normalize("NFC", file))
         # if we have a matching file size
         if os.path.exists(dest) and size == os.stat(dest).st_size:
             continue
@@ -408,7 +414,9 @@ def replaceWithApkg(mw, file, backup):
         open(dest, "wb").write(data)
     z.close()
     # reload
-    mw.loadCollection()
+    if not mw.loadCollection():
+        mw.progress.finish()
+        return
     if backup:
         mw.col.modSchema(check=False)
     mw.progress.finish()

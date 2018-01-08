@@ -5,7 +5,7 @@
 from aqt.qt import *
 import os, time
 from aqt.utils import saveGeom, restoreGeom, maybeHideClose, addCloseShortcut, \
-    tooltip
+    tooltip, getSaveFile
 import aqt
 
 # Deck Stats
@@ -40,26 +40,34 @@ class DeckStats(QDialog):
         addCloseShortcut(self)
         self.refresh()
         self.show()
+        self.activateWindow()
 
     def reject(self):
         saveGeom(self, self.name)
+        aqt.dialogs.markClosed("DeckStats")
         QDialog.reject(self)
+
+    def closeWithCallback(self, callback):
+        self.reject()
+        callback()
 
     def _imagePath(self):
         name = time.strftime("-%Y-%m-%d@%H-%M-%S.pdf",
                              time.localtime(time.time()))
         name = "anki-"+_("stats")+name
-        desktopPath = QStandardPaths.writableLocation(
-            QStandardPaths.DesktopLocation)
-        if not os.path.exists(desktopPath):
-            os.mkdir(desktopPath)
-        path = os.path.join(desktopPath, name)
-        return path
+        file = getSaveFile(self, title=_("Save PDF"),
+                           dir_description="stats",
+                           key="stats",
+                           ext=".pdf",
+                           fname=name)
+        return file
 
     def saveImage(self):
         path = self._imagePath()
+        if not path:
+            return
         self.form.web.page().printToPdf(path)
-        tooltip(_("A PDF file was saved to your desktop."))
+        tooltip(_("Saved."))
 
     def changePeriod(self, n):
         self.period = n
@@ -74,5 +82,6 @@ class DeckStats(QDialog):
         stats = self.mw.col.stats()
         stats.wholeCollection = self.wholeCollection
         self.report = stats.report(type=self.period)
-        self.form.web.stdHtml("<html><body>"+self.report+"</body></html>")
+        self.form.web.stdHtml("<html><body>"+self.report+"</body></html>",
+                              js=["jquery.js", "plot.js"])
         self.mw.progress.finish()

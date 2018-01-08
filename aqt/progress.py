@@ -4,6 +4,7 @@
 
 import time
 from aqt.qt import *
+import aqt.forms
 
 # fixme: if mw->subwindow opens a progress dialog with mw as the parent, mw
 # gets raised on finish on compiz. perhaps we should be using the progress
@@ -29,11 +30,7 @@ class ProgressManager:
         "Install a handler in the current DB."
         self.lastDbProgress = 0
         self.inDB = False
-        try:
-            db.set_progress_handler(self._dbProgress, 10000)
-        except:
-            print("""\
-Your pysqlite2 is too old. Anki will appear frozen during long operations.""")
+        db.set_progress_handler(self._dbProgress, 10000)
 
     def _dbProgress(self):
         "Called from SQLite."
@@ -55,14 +52,15 @@ Your pysqlite2 is too old. Anki will appear frozen during long operations.""")
           self.app.processEvents(QEventLoop.ExcludeUserInputEvents)
         self.inDB = False
 
-    # DB-safe timers
+    # Safer timers
     ##########################################################################
     # QTimer may fire in processEvents(). We provide a custom timer which
-    # automatically defers until the DB is not busy.
+    # automatically defers until the DB is not busy, and avoids running
+    # while a progress window is visible.
 
     def timer(self, ms, func, repeat):
         def handler():
-            if self.inDB:
+            if self.inDB or self._levels:
                 # retry in 100ms
                 self.timer(100, func, False)
             else:
@@ -77,46 +75,47 @@ Your pysqlite2 is too old. Anki will appear frozen during long operations.""")
     # Creating progress dialogs
     ##########################################################################
 
-    class ProgressNoCancel(QProgressDialog):
+    class ProgressDialog(QDialog):
+        def __init__(self, parent):
+            QDialog.__init__(self, parent)
+            self.form = aqt.forms.progress.Ui_Dialog()
+            self.form.setupUi(self)
+            self._closingDown = False
+            self.wantCancel = False
+
+        def cancel(self):
+            self._closingDown = True
+            self.close()
+
         def closeEvent(self, evt):
-            evt.ignore()
+            if self._closingDown:
+                evt.accept()
+            else:
+                self.wantCancel  = True
+                evt.ignore()
+
         def keyPressEvent(self, evt):
             if evt.key() == Qt.Key_Escape:
                 evt.ignore()
+                self.wantCancel  = True
 
-    class ProgressCancellable(QProgressDialog):
-        def __init__(self, *args, **kwargs):
-            QProgressDialog.__init__(self, *args, **kwargs)
-            self.ankiCancel = False
-        def closeEvent(self, evt):
-            # avoid standard Qt flag as we don't want to close until we're ready
-            self.ankiCancel = True
-            evt.ignore()
-        def keyPressEvent(self, evt):
-            if evt.key() == Qt.Key_Escape:
-                evt.ignore()
-                self.ankiCancel = True
-
-    def start(self, max=0, min=0, label=None, parent=None, immediate=False, cancellable=False):
+    def start(self, max=0, min=0, label=None, parent=None, immediate=False):
         self._levels += 1
         if self._levels > 1:
             return
         # setup window
-        parent = parent or self.app.activeWindow() or self.mw
+        parent = parent or self.app.activeWindow()
+        if not parent and self.mw.isVisible():
+            parent = self.mw
+
         label = label or _("Processing...")
-        if cancellable:
-            klass = self.ProgressCancellable
-        else:
-            klass = self.ProgressNoCancel
-        self._win = klass(label, "", min, max, parent)
+        self._win = self.ProgressDialog(parent)
+        self._win.form.progressBar.setMinimum(min)
+        self._win.form.progressBar.setMaximum(max)
+        self._win.form.label.setText(label)
         self._win.setWindowTitle("Anki")
-        self._win.setCancelButton(None)
-        self._win.setAutoClose(False)
-        self._win.setAutoReset(False)
         self._win.setWindowModality(Qt.ApplicationModal)
-        # we need to manually manage minimum time to show, as qt gets confused
-        # by the db handler
-        self._win.setMinimumDuration(100000)
+        self._win.setMinimumWidth(300)
         if immediate:
             self._showWin()
         else:
@@ -126,20 +125,25 @@ Your pysqlite2 is too old. Anki will appear frozen during long operations.""")
         self._max = max
         self._firstTime = time.time()
         self._lastUpdate = time.time()
+        self._updating = False
         return self._win
 
     def update(self, label=None, value=None, process=True, maybeShow=True):
         #print self._min, self._counter, self._max, label, time.time() - self._lastTime
+        if self._updating:
+            return
         if maybeShow:
             self._maybeShow()
         elapsed = time.time() - self._lastUpdate
         if label:
-            self._win.setLabelText(label)
+            self._win.form.label.setText(label)
         if self._max and self._shown:
             self._counter = value or (self._counter+1)
-            self._win.setValue(self._counter)
+            self._win.form.progressBar.setValue(self._counter)
         if process and elapsed >= 0.2:
+            self._updating = True
             self.app.processEvents(QEventLoop.ExcludeUserInputEvents)
+            self._updating = False
             self._lastUpdate = time.time()
 
     def finish(self):
@@ -167,6 +171,7 @@ Your pysqlite2 is too old. Anki will appear frozen during long operations.""")
     def _showWin(self):
         self._shown = time.time()
         self._win.show()
+        self._win.adjustSize()
         self._setBusy()
 
     def _closeWin(self):
@@ -181,6 +186,7 @@ Your pysqlite2 is too old. Anki will appear frozen during long operations.""")
                     break
                 self.app.processEvents(QEventLoop.ExcludeUserInputEvents)
         self._win.cancel()
+        self._win = None
         self._unsetBusy()
 
     def _setBusy(self):

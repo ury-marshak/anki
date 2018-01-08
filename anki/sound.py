@@ -2,6 +2,7 @@
 # Copyright: Damien Elmes <anki@ichi2.net>
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
+import html
 import re, sys, threading, time, subprocess, os, atexit
 import  random
 from anki.hooks import addHook
@@ -13,8 +14,13 @@ from anki.utils import  tmpdir, isWin, isMac, isLin
 _soundReg = "\[sound:(.*?)\]"
 
 def playFromText(text):
-    for match in re.findall(_soundReg, text):
+    for match in allSounds(text):
+        # filename is html encoded
+        match = html.unescape(match)
         play(match)
+
+def allSounds(text):
+    return re.findall(_soundReg, text)
 
 def stripSounds(text):
     return re.sub(_soundReg, "", text)
@@ -53,7 +59,7 @@ processingChain = []
 recFiles = []
 
 processingChain = [
-    ["lame", "rec.wav", processingDst, "--noreplaygain", "--quiet"],
+    ["lame", processingSrc, processingDst, "--noreplaygain", "--quiet"],
     ]
 
 # don't show box on windows
@@ -75,15 +81,54 @@ def retryWait(proc):
         except OSError:
             continue
 
-# Mplayer settings
+# MPV
 ##########################################################################
 
-mplayerCmd = ["mplayer", "-really-quiet", "-noautosub"]
-if isWin:
-    mplayerCmd += ["-ao", "win32"]
+from anki.mpv import MPV
+
+mpvPath, mpvEnv = _packagedCmd(["mpv"])
+
+class MpvManager(MPV):
+
+    executable = mpvPath[0]
+    popenEnv = mpvEnv
+
+    def __init__(self):
+        super().__init__(window_id=None, debug=False)
+
+    def queueFile(self, file):
+        path = os.path.join(os.getcwd(), file)
+        self.command("loadfile", path, "append-play")
+
+    def clearQueue(self):
+        self.command("stop")
+
+    def togglePause(self):
+        self.set_property("pause", not self.get_property("pause"))
+
+    def seekRelative(self, secs):
+        self.command("seek", secs, "relative")
+
+mpvManager = None
+
+def setupMPV():
+    global mpvManager, _player, _queueEraser
+    mpvManager = MpvManager()
+    _player = mpvManager.queueFile
+    _queueEraser = mpvManager.clearQueue
+
+def cleanupMPV():
+    global mpvManager, _player, _queueEraser
+    if mpvManager:
+        mpvManager.close()
+        mpvManager = None
+        _player = None
+        _queueEraser = None
 
 # Mplayer in slave mode
 ##########################################################################
+
+mplayerCmd = ["mplayer", "-really-quiet", "-noautosub"]
 
 mplayerQueue = []
 mplayerManager = None
@@ -236,6 +281,9 @@ class _Recorder:
                 ret = retryWait(subprocess.Popen(cmd, startupinfo=si, env=env))
             except:
                 ret = True
+            finally:
+                if os.path.exists(processingSrc):
+                    os.unlink(processingSrc)
             if ret:
                 raise Exception(_(
                     "Error running %s") %
@@ -243,8 +291,9 @@ class _Recorder:
 
 class PyAudioThreadedRecorder(threading.Thread):
 
-    def __init__(self):
+    def __init__(self, startupDelay):
         threading.Thread.__init__(self)
+        self.startupDelay = startupDelay
         self.finish = False
 
     def run(self):
@@ -252,6 +301,7 @@ class PyAudioThreadedRecorder(threading.Thread):
         p = pyaudio.PyAudio()
 
         rate = int(p.get_default_input_device_info()['defaultSampleRate'])
+        wait = int(rate * self.startupDelay)
 
         stream = p.open(format=PYAU_FORMAT,
                         channels=PYAU_CHANNELS,
@@ -259,6 +309,8 @@ class PyAudioThreadedRecorder(threading.Thread):
                         input=True,
                         input_device_index=PYAU_INPUT_INDEX,
                         frames_per_buffer=chunk)
+
+        stream.read(wait)
 
         data = b""
         while not self.finish:
@@ -280,6 +332,9 @@ class PyAudioThreadedRecorder(threading.Thread):
 
 class PyAudioRecorder(_Recorder):
 
+    # discard first 250ms which may have pops/cracks
+    startupDelay = 0.25
+
     def __init__(self):
         for t in recFiles + [processingSrc, processingDst]:
             try:
@@ -289,7 +344,7 @@ class PyAudioRecorder(_Recorder):
         self.encode = False
 
     def start(self):
-        self.thread = PyAudioThreadedRecorder()
+        self.thread = PyAudioThreadedRecorder(startupDelay=self.startupDelay)
         self.thread.start()
 
     def stop(self):

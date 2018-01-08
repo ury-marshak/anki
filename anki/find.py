@@ -31,6 +31,7 @@ class Finder:
             rated=self._findRated,
             tag=self._findTag,
             dupe=self._findDupes,
+            flag=self._findFlag,
         )
         self.search['is'] = self._findCardState
         runHook("search", self.search)
@@ -274,6 +275,14 @@ select distinct(n.id) from cards c, notes n where c.nid=n.id and """+preds
 (c.queue = 1 and c.due <= %d)""" % (
     self.col.sched.today, self.col.sched.dayCutoff)
 
+    def _findFlag(self, args):
+        (val, args) = args
+        if not val or val not in "01234":
+            return
+        val = int(val)
+        mask = 2**3 - 1
+        return "(c.flags & %d) == %d" % (mask, val)
+
     def _findRated(self, args):
         # days(:optional_ease)
         (val, args) = args
@@ -401,9 +410,7 @@ select distinct(n.id) from cards c, notes n where c.nid=n.id and """+preds
         else:
             # wildcard
             ids = set()
-            # should use re.escape in the future
-            val = val.replace("*", ".*")
-            val = val.replace("+", "\\+")
+            val = re.escape(val).replace(r"\*", ".*")
             for d in self.col.decks.all():
                 if re.match("(?i)"+val, d['name']):
                     ids.update(dids(d['id']))

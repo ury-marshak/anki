@@ -4,7 +4,7 @@ from anki.hooks import runFilter
 from anki.template import furigana; furigana.install()
 from anki.template import hint; hint.install()
 
-clozeReg = r"(?s)\{\{c%s::(.*?)(::(.*?))?\}\}"
+clozeReg = r"(?si)\{\{(c)%s::(.*?)(::(.*?))?\}\}"
 
 modifiers = {}
 def modifier(symbol):
@@ -178,7 +178,7 @@ class Template:
                 # hook-based field modifier
                 mod, extra = re.search("^(.*?)(?:\((.*)\))?$", mod).groups()
                 txt = runFilter('fmod_' + mod, txt or '', extra or '', context,
-                                tag, tag_name);
+                                tag, tag_name)
                 if txt is None:
                     return '{unknown field %s}' % tag_name
         return txt
@@ -187,18 +187,45 @@ class Template:
         reg = clozeReg
         if not re.search(reg%ord, txt):
             return ""
+        txt = self._removeFormattingFromMathjax(txt, ord)
         def repl(m):
             # replace chosen cloze with type
             if type == "q":
-                if m.group(3):
-                    return "<span class=cloze>[%s]</span>" % m.group(3)
+                if m.group(4):
+                    buf = "[%s]" % m.group(4)
                 else:
-                    return "<span class=cloze>[...]</span>"
+                    buf = "[...]"
             else:
-                return "<span class=cloze>%s</span>" % m.group(1)
+                buf = m.group(2)
+            # uppercase = no formatting
+            if m.group(1) == "c":
+                buf = "<span class=cloze>%s</span>" % buf
+            return buf
         txt = re.sub(reg%ord, repl, txt)
         # and display other clozes normally
-        return re.sub(reg%"\d+", "\\1", txt)
+        return re.sub(reg%"\d+", "\\2", txt)
+
+    # look for clozes wrapped in mathjax, and change {{cx to {{Cx
+    def _removeFormattingFromMathjax(self, txt, ord):
+        opening = ["\\(", "\\["]
+        closing = ["\\)", "\\]"]
+        # flags in middle of expression deprecated
+        creg = clozeReg.replace("(?si)", "")
+        regex = r"(?si)(\\[([])(.*?)"+(creg%ord)+r"(.*?)(\\[\])])"
+        def repl(m):
+            enclosed = True
+            for s in closing:
+                if s in m.group(1):
+                    enclosed = False
+            for s in opening:
+                if s in m.group(7):
+                    enclosed = False
+            if not enclosed:
+                return m.group(0)
+            # remove formatting
+            return m.group(0).replace("{{c", "{{C")
+        txt = re.sub(regex, repl, txt)
+        return txt
 
     @modifier('=')
     def render_delimiter(self, tag_name=None, context=None):

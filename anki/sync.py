@@ -7,8 +7,8 @@ import gzip
 import random
 import requests
 
-from anki.db import DB
-from anki.utils import ids2str, intTime, json, isWin, isMac, platDesc, checksum
+from anki.db import DB, DBError
+from anki.utils import ids2str, intTime, json, platDesc, checksum, devMode
 from anki.consts import *
 from .hooks import runHook
 import anki
@@ -459,6 +459,8 @@ class LocalServer(Syncer):
 
 class AnkiRequestsClient:
 
+    verify = True
+
     def __init__(self):
         self.session = requests.Session()
 
@@ -466,13 +468,13 @@ class AnkiRequestsClient:
         data = _MonitoringFile(data)
         headers['User-Agent'] = self._agentName()
         return self.session.post(
-            url, data=data, headers=headers, stream=True, timeout=60)
+            url, data=data, headers=headers, stream=True, timeout=60, verify=self.verify)
 
     def get(self, url, headers=None):
         if headers is None:
             headers = {}
         headers['User-Agent'] = self._agentName()
-        return self.session.get(url, stream=True, timeout=60)
+        return self.session.get(url, stream=True, timeout=60, verify=self.verify)
 
     def streamContent(self, resp):
         resp.raise_for_status()
@@ -576,7 +578,7 @@ class RemoteServer(HttpSyncer):
         HttpSyncer.__init__(self, hkey)
 
     def syncURL(self):
-        if os.getenv("ANKIDEV"):
+        if devMode:
             return "https://l1sync.ankiweb.net/sync/"
         return SYNC_BASE + "sync/"
 
@@ -645,7 +647,7 @@ class FullSyncer(HttpSyncer):
         self.col = col
 
     def syncURL(self):
-        if os.getenv("ANKIDEV"):
+        if devMode:
             return "https://l1.ankiweb.net/sync/"
         return SYNC_BASE + "sync/"
 
@@ -701,7 +703,10 @@ class MediaSyncer:
         # check if there have been any changes
         runHook("sync", "findMedia")
         self.col.log("findChanges")
-        self.col.media.findChanges()
+        try:
+            self.col.media.findChanges()
+        except DBError:
+            return "corruptMediaDB"
 
         # begin session and check if in sync
         lastUsn = self.col.media.lastUsn()
@@ -829,7 +834,7 @@ class RemoteMediaServer(HttpSyncer):
         HttpSyncer.__init__(self, hkey, client)
 
     def syncURL(self):
-        if os.getenv("ANKIDEV"):
+        if devMode:
             return "https://l1.ankiweb.net/msync/"
         return SYNC_MEDIA_BASE
 

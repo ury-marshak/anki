@@ -2,14 +2,14 @@
 
 import os, tempfile
 from tests.shared import assertException, getEmptyCol
-from anki.stdmodels import addBasicModel
+from anki.stdmodels import addBasicModel, models
 
 from anki import Collection as aopen
 
 newPath = None
 newMod = None
 
-def test_create():
+def test_create_open():
     global newPath, newMod
     (fd, path) = tempfile.mkstemp(suffix=".anki2", prefix="test_attachNew")
     try:
@@ -24,12 +24,11 @@ def test_create():
     newMod = deck.mod
     del deck
 
-def test_open():
+    # reopen
     deck = aopen(newPath)
     assert deck.mod == newMod
     deck.close()
 
-def test_openReadOnly():
     # non-writeable dir
     assertException(Exception,
                     lambda: aopen("/attachroot.anki2"))
@@ -113,10 +112,10 @@ def test_addDelTags():
 
 def test_timestamps():
     deck = getEmptyCol()
-    assert len(deck.models.models) == 4
+    assert len(deck.models.models) == len(models)
     for i in range(100):
         addBasicModel(deck)
-    assert len(deck.models.models) == 104
+    assert len(deck.models.models) == 100 + len(models)
 
 def test_furigana():
     deck = getEmptyCol()

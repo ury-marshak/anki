@@ -9,6 +9,7 @@ import threading
 langs = [
     ("Afrikaans", "af"),
     ("Bahasa Melayu", "ms"),
+    ("Català", "ca"),
     ("Dansk", "da"),
     ("Deutsch", "de"),
     ("Eesti", "et"),
@@ -76,8 +77,12 @@ def ngettext(single, plural, n):
     return localTranslation().ngettext(single, plural, n)
 
 def langDir():
-    dir = os.path.join(os.path.dirname(
-        os.path.abspath(__file__)), "locale")
+    from anki.utils import isMac
+    filedir = os.path.dirname(os.path.abspath(__file__))
+    if isMac:
+        dir = os.path.abspath(filedir + "/../../Resources/locale")
+    else:
+        dir = os.path.join(filedir, "locale")
     if not os.path.isdir(dir):
         dir = os.path.join(os.path.dirname(sys.argv[0]), "locale")
     if not os.path.isdir(dir):

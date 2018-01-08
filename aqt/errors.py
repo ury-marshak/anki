@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 import sys, traceback
-import cgi
+import html
 
 from anki.lang import _
 from aqt.qt import *
@@ -27,7 +27,12 @@ class ErrorHandler(QObject):
         self.timer = None
         self.errorTimer.connect(self._setTimer)
         self.pool = ""
+        self._oldstderr = sys.stderr
         sys.stderr = self
+
+    def unload(self):
+        sys.stderr = self._oldstderr
+        sys.excepthook = None
 
     def write(self, data):
         # dump to stdout
@@ -57,15 +62,17 @@ not able to correct them automatically. Please search for 'temp folder' in the \
 Anki manual for more information.""")
 
     def onTimeout(self):
-        error = cgi.escape(self.pool)
+        error = html.escape(self.pool)
         self.pool = ""
         self.mw.progress.clear()
         if "abortSchemaMod" in error:
             return
+        if "10013" in error:
+            return showWarning(_("Your firewall or antivirus program is preventing Anki from creating a connection to itself. Please add an exception for Anki."))
         if "Pyaudio not" in error:
             return showWarning(_("Please install PyAudio"))
         if "install mplayer" in error:
-            return showWarning(_("Please install mplayer"))
+            return showWarning(_("Sound and video on cards will not function until mpv or mplayer is installed."))
         if "no default input" in error.lower():
             return showWarning(_("Please connect a microphone, and ensure "
                                  "other programs are not using the audio device."))
@@ -90,27 +97,56 @@ Possible causes:
 It's a good idea to run Tools>Check Database to ensure your collection \
 is not corrupt.
 """))
+
         stdText = _("""\
-An error occurred. It may have been caused by a harmless bug, <br>
-or your deck may have a problem.
-<p>To confirm it's not a problem with your deck, please run
-<b>Tools &gt; Check Database</b>.
-<p>If that doesn't fix the problem, please copy the following<br>
-into a bug report:""")
+<h1>Error</h1>
+
+<p>An error occurred. Please use <b>Tools &gt; Check Database</b> to see if \
+that fixes the problem.</p>
+
+<p>If problems persist, please report the problem on our \
+<a href="https://help.ankiweb.net">support site</a>. Please copy and paste \
+ the information below into your report.</p>""")
+
         pluginText = _("""\
-An error occurred in an add-on.<br><br>
-Please start Anki while holding down the shift key, and see if<br>
-the error goes away.<br><br>
-If the error goes away, please report the issue on the add-on<br>
-forum: %s
-<br><br>If the error occurs even with add-ons disabled, please<br>
-report the issue on our support site.
+<h1>Error</h1>
+
+<p>An error occurred. Please start Anki while holding down the shift \
+key, which will temporarily disable the add-ons you have installed.</p>
+
+<p>If the issue only occurs when add-ons are enabled, please use the \
+Tools&gt;Add-ons menu item to disable some add-ons and restart Anki, \
+repeating until you discover the add-on that is causing the problem.</p>
+
+<p>When you've discovered the add-on that is causing the problem, please \
+report the issue on the <a href="https://help.ankiweb.net/discussions/add-ons/">\
+add-ons section</a> of our support site.
+
+<p>Debug info:</p>
 """)
-        pluginText %= "https://anki.tenderapp.com/discussions/add-ons"
-        if "addon" in error:
+        if self.mw.addonManager.dirty:
             txt = pluginText
         else:
             txt = stdText
         # show dialog
+        error = self._supportText() + "\n" + error
+
         txt = txt + "<div style='white-space: pre-wrap'>" + error + "</div>"
         showText(txt, type="html")
+
+    def _supportText(self):
+        import platform
+        from aqt import appVersion
+
+        if isWin:
+            platname = "Windows " + platform.win32_ver()[0]
+        elif isMac:
+            platname = "Mac " + platform.mac_ver()[0]
+        else:
+            platname = "Linux"
+
+        return f"""\
+Anki {appVersion} Python {platform.python_version()} Qt {QT_VERSION_STR} PyQt {PYQT_VERSION_STR}
+Platform: {platname}
+Flags: frz={getattr(sys, "frozen", False)} ao={self.mw.addonManager.dirty}
+"""

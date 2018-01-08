@@ -7,6 +7,14 @@ import re, os, sys, urllib.request, urllib.parse, urllib.error, subprocess
 import aqt
 from anki.sound import stripSounds
 from anki.utils import isWin, isMac, invalidFilename
+from contextlib import contextmanager
+
+@contextmanager
+def noBundledLibs():
+    oldlpath = os.environ.pop("LD_LIBRARY_PATH", None)
+    yield
+    if oldlpath is not None:
+        os.environ["LD_LIBRARY_PATH"] = oldlpath
 
 def openHelp(section):
     link = aqt.appHelpSite
@@ -16,7 +24,8 @@ def openHelp(section):
 
 def openLink(link):
     tooltip(_("Loading..."), period=1000)
-    QDesktopServices.openUrl(QUrl(link))
+    with noBundledLibs():
+        QDesktopServices.openUrl(QUrl(link))
 
 def showWarning(text, parent=None, help="", title="Anki"):
     "Show a small warning with an OK button."
@@ -57,8 +66,8 @@ def showText(txt, parent=None, type="text", run=True, geomKey=None, \
     diag.setWindowTitle(title)
     layout = QVBoxLayout(diag)
     diag.setLayout(layout)
-    text = QTextEdit()
-    text.setReadOnly(True)
+    text = QTextBrowser()
+    text.setOpenExternalLinks(True)
     if type == "text":
         text.setPlainText(txt)
     else:
@@ -134,7 +143,9 @@ class ButtonedDialog(QMessageBox):
         if but == "Help":
             # FIXME stop dialog closing?
             openHelp(self.help)
-        return self.clickedButton().text()
+        txt = self.clickedButton().text()
+        # work around KDE 'helpfully' adding accelerators to button text of Qt apps
+        return txt.replace("&", "")
 
     def setDefault(self, idx):
         self.setDefaultButton(self.buttons[idx])
@@ -268,7 +279,9 @@ def getSaveFile(parent, title, dir_description, key, ext, fname=None):
     """Ask the user for a file to save. Use DIR_DESCRIPTION as config
     variable. The file dialog will default to open with FNAME."""
     config_key = dir_description + 'Directory'
-    base = aqt.mw.pm.profile.get(config_key, aqt.mw.pm.base)
+
+    defaultPath = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
+    base = aqt.mw.pm.profile.get(config_key, defaultPath)
     path = os.path.join(base, fname)
     file = QFileDialog.getSaveFileName(
         parent, title, path, "{0} (*{1})".format(key, ext),
@@ -342,19 +355,12 @@ def applyStyles(widget):
     if os.path.exists(p):
         widget.setStyleSheet(open(p).read())
 
-# this will go away in the future - please use mw.baseHTML() instead
-def getBase(col):
-    from aqt import mw
-    return mw.baseHTML()
-
 def openFolder(path):
     if isWin:
         subprocess.Popen(["explorer", "file://"+path])
     else:
-        oldlpath = os.environ.pop("LD_LIBRARY_PATH", None)
-        QDesktopServices.openUrl(QUrl("file://" + path))
-        if oldlpath:
-            os.environ["LD_LIBRARY_PATH"] = oldlpath
+        with noBundledLibs():
+            QDesktopServices.openUrl(QUrl("file://" + path))
 
 def shortcut(key):
     if isMac:
@@ -388,6 +394,7 @@ _tooltipLabel = None
 def tooltip(msg, period=3000, parent=None):
     global _tooltipTimer, _tooltipLabel
     class CustomLabel(QLabel):
+        silentlyClose = True
         def mousePressEvent(self, evt):
             evt.accept()
             self.hide()
@@ -396,7 +403,6 @@ def tooltip(msg, period=3000, parent=None):
     lab = CustomLabel("""\
 <table cellpadding=10>
 <tr>
-<td><img src=":/icons/help-hint.png"></td>
 <td>%s</td>
 </tr>
 </table>""" % msg, aw)
@@ -435,3 +441,85 @@ def checkInvalidFilename(str, dirsep=True):
                     bad)
         return True
     return False
+
+# Menus
+######################################################################
+
+class MenuList:
+    def __init__(self):
+        self.children = []
+
+    def addItem(self, title, func):
+        item = MenuItem(title, func)
+        self.children.append(item)
+        return item
+
+    def addSeparator(self):
+        self.children.append(None)
+
+    def addMenu(self, title):
+        submenu = SubMenu(title)
+        self.children.append(submenu)
+        return submenu
+
+    def addChild(self, child):
+        self.children.append(child)
+
+    def renderTo(self, qmenu):
+        for child in self.children:
+            if child is None:
+                qmenu.addSeparator()
+            elif isinstance(child, QAction):
+                qmenu.addAction(child)
+            else:
+                child.renderTo(qmenu)
+
+    def popupOver(self, widget):
+        qmenu = QMenu()
+        self.renderTo(qmenu)
+        qmenu.exec_(widget.mapToGlobal(QPoint(0,0)))
+
+    # Chunking
+    ######################################################################
+
+    chunkSize = 30
+
+    def chunked(self):
+        if len(self.children) <= self.chunkSize:
+            return self
+
+        newList = MenuList()
+        oldItems = self.children[:]
+        while oldItems:
+            chunk = oldItems[:self.chunkSize]
+            del oldItems[:self.chunkSize]
+            label = self._chunkLabel(chunk)
+            menu = newList.addMenu(label)
+            menu.children = chunk
+        return newList
+
+    def _chunkLabel(self, items):
+        start = items[0].title
+        end = items[-1].title
+        prefix = os.path.commonprefix([start.upper(), end.upper()])
+        n = len(prefix)+1
+        return f"{start[:n].upper()}-{end[:n].upper()}"
+
+class SubMenu(MenuList):
+    def __init__(self, title):
+        super().__init__()
+        self.title = title
+
+    def renderTo(self, menu):
+        submenu = menu.addMenu(self.title)
+        super().renderTo(submenu)
+
+class MenuItem:
+    def __init__(self, title, func):
+        self.title = title
+        self.func = func
+
+    def renderTo(self, qmenu):
+        a = qmenu.addAction(self.title)
+        a.triggered.connect(self.func)
+

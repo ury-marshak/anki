@@ -107,6 +107,7 @@ class Models(QDialog):
         d = QDialog(self)
         frm = aqt.forms.modelopts.Ui_Dialog()
         frm.setupUi(d)
+        frm.latexsvg.setChecked(self.model.get("latexsvg", False))
         frm.latexHeader.setText(self.model['latexPre'])
         frm.latexFooter.setText(self.model['latexPost'])
         d.setWindowTitle(_("Options for %s") % self.model['name'])
@@ -114,6 +115,7 @@ class Models(QDialog):
         restoreGeom(d, "modelopts")
         d.exec_()
         saveGeom(d, "modelopts")
+        self.model['latexsvg'] = frm.latexsvg.isChecked()
         self.model['latexPre'] = str(frm.latexHeader.toPlainText())
         self.model['latexPost'] = str(frm.latexFooter.toPlainText())
 

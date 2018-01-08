@@ -153,8 +153,16 @@ class DeckManager:
             # child of an existing deck then it needs to be renamed
             deck = self.get(did)
             if '::' in deck['name']:
-                deck['name'] = _("Default")
-                self.save(deck)
+                base = deck['name'].split("::")[-1]
+                suffix = ""
+                while True:
+                    # find an unused name
+                    name = base + suffix
+                    if not self.byName(name):
+                        deck['name'] = name
+                        self.save(deck)
+                        break
+                    suffix += "1"
             return
         # log the removal regardless of whether we have the deck or not
         self.col._logRem([did], REM_DECK)
@@ -267,13 +275,14 @@ class DeckManager:
         draggedDeckName = draggedDeck['name']
         ontoDeckName = self.get(ontoDeckDid)['name']
 
-        if ontoDeckDid == None or ontoDeckDid == '':
+        if ontoDeckDid is None or ontoDeckDid == '':
             if len(self._path(draggedDeckName)) > 1:
                 self.rename(draggedDeck, self._basename(draggedDeckName))
         elif self._canDragAndDrop(draggedDeckName, ontoDeckName):
             draggedDeck = self.get(draggedDeckDid)
             draggedDeckName = draggedDeck['name']
             ontoDeckName = self.get(ontoDeckDid)['name']
+            assert ontoDeckName.strip()
             self.rename(draggedDeck, ontoDeckName + "::" + self._basename(draggedDeckName))
 
     def _canDragAndDrop(self, draggedDeckName, ontoDeckName):

@@ -56,7 +56,7 @@ class Scheduler:
 
     def answerCard(self, card, ease):
         self.col.log()
-        assert ease >= 1 and ease <= 4
+        assert 1 <= ease <= 4
         self.col.markReview(card)
         if self._burySiblingsOnAnswer:
             self._burySiblings(card)
@@ -982,7 +982,7 @@ due = odue, odue = 0, odid = 0, usn = ? where %s""" % lim,
 
     def _dynOrder(self, o, l):
         if o == DYN_OLDEST:
-            t = "c.mod"
+            t = "(select max(id) from revlog where cid=c.id)"
         elif o == DYN_RANDOM:
             t = "random()"
         elif o == DYN_SMALLINT:

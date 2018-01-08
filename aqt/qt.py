@@ -38,8 +38,7 @@ qtmajor = (QT_VERSION & 0xff0000) >> 16
 qtminor = (QT_VERSION & 0x00ff00) >> 8
 qtpoint = QT_VERSION & 0xff
 
-if ((qtmajor == 5 and qtminor == 7 and qtpoint == 0) or
-    (qtmajor == 5 and qtminor == 8 and qtpoint == 0)):
-    raise Exception("Your Qt version is known to be broken.")
-elif qtmajor <= 5 and qtminor < 7:
-    raise Exception("Anki requires Qt 5.7.1+")
+if qtmajor < 5 or (qtmajor == 5 and qtminor < 9):
+    raise Exception("Anki requires Qt 5.9.0+")
+if qtmajor == 5 and qtminor == 10:
+    raise Exception("Qt 5.10 is known to be buggy.")
