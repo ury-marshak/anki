@@ -2,7 +2,7 @@
 # Copyright: Damien Elmes <anki@ichi2.net>
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-from aqt.utils import  openLink, shortcut, tooltip
+from aqt.utils import openLink, shortcut, tooltip, askUserDialog
 from anki.utils import isMac
 import aqt
 from anki.sound import clearAudioQueue
@@ -57,8 +57,7 @@ class Overview:
         elif url == "studymore":
             self.onStudyMore()
         elif url == "unbury":
-            self.mw.col.sched.unburyCardsForDeck()
-            self.mw.reset()
+            self.onUnbury()
         elif url.lower().startswith("http"):
             openLink(url)
         return False
@@ -69,7 +68,7 @@ class Overview:
             ("r", self.onRebuildKey),
             ("e", self.onEmptyKey),
             ("c", self.onCustomStudyKey),
-            ("u", self.onUnburyKey)
+            ("u", self.onUnbury)
         ]
 
     def _filteredDeck(self):
@@ -89,8 +88,33 @@ class Overview:
         if not self._filteredDeck():
             self.onStudyMore()
 
-    def onUnburyKey(self):
-        self.mw.col.sched.unburyCardsForDeck()
+    def onUnbury(self):
+        if self.mw.col.schedVer() == 1:
+            self.mw.col.sched.unburyCardsForDeck()
+            self.mw.reset()
+            return
+
+        sibs = self.mw.col.sched.haveBuriedSiblings()
+        man = self.mw.col.sched.haveManuallyBuried()
+
+        if sibs and man:
+            opts = [_("Manually Buried Cards"),
+                    _("Buried Siblings"),
+                    _("All Buried Cards"),
+                    _("Cancel")]
+
+            diag = askUserDialog(_("What would you like to unbury?"), opts)
+            diag.setDefault(0)
+            ret = diag.run()
+            if ret == opts[0]:
+                self.mw.col.sched.unburyCardsForDeck(type="manual")
+            elif ret == opts[1]:
+                self.mw.col.sched.unburyCardsForDeck(type="siblings")
+            elif ret == opts[2]:
+                self.mw.col.sched.unburyCardsForDeck(type="all")
+        else:
+            self.mw.col.sched.unburyCardsForDeck(type="all")
+
         self.mw.reset()
 
     # HTML
@@ -138,16 +162,17 @@ to their original deck.""")
     def _table(self):
         counts = list(self.mw.col.sched.counts())
         finished = not sum(counts)
-        for n in range(len(counts)):
-            if counts[n] >= 1000:
-                counts[n] = "1000+"
+        if self.mw.col.schedVer() == 1:
+            for n in range(len(counts)):
+                if counts[n] >= 1000:
+                    counts[n] = "1000+"
         but = self.mw.button
         if finished:
             return '<div style="white-space: pre-wrap;">%s</div>' % (
                 self.mw.col.sched.finishedMsg())
         else:
             return '''
-<table width=300 cellpadding=5>
+<table width=400 cellpadding=5>
 <tr><td align=center valign=top>
 <table cellspacing=5>
 <tr><td>%s:</td><td><b><font color=#00a>%s</font></b></td></tr>

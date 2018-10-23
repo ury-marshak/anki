@@ -35,6 +35,9 @@ class AddonManager:
             if not os.path.exists(os.path.join(path, "__init__.py")):
                 continue
             l.append(d)
+        l.sort()
+        if os.getenv("ANKIREVADDONS", ""):
+            l = reversed(l)
         return l
 
     def managedAddons(self):
@@ -201,6 +204,7 @@ When loading '%(name)s':
     ######################################################################
 
     _configButtonActions = {}
+    _configUpdatedActions = {}
 
     def addonConfigDefaults(self, dir):
         path = os.path.join(self.addonsFolder(dir), "config.json")
@@ -213,7 +217,7 @@ When loading '%(name)s':
     def addonConfigHelp(self, dir):
         path = os.path.join(self.addonsFolder(dir), "config.md")
         if os.path.exists(path):
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 return markdown.markdown(f.read())
         else:
             return ""
@@ -223,6 +227,9 @@ When loading '%(name)s':
 
     def configAction(self, addon):
         return self._configButtonActions.get(addon)
+
+    def configUpdatedAction(self, addon):
+        return self._configUpdatedActions.get(addon)
 
     # Add-on Config API
     ######################################################################
@@ -242,6 +249,10 @@ When loading '%(name)s':
     def setConfigAction(self, module, fn):
         addon = self.addonFromModule(module)
         self._configButtonActions[addon] = fn
+
+    def setConfigUpdatedAction(self, module, fn):
+        addon = self.addonFromModule(module)
+        self._configUpdatedActions[addon] = fn
 
     def writeConfig(self, module, conf):
         addon = self.addonFromModule(module)
@@ -291,6 +302,7 @@ class AddonsDialog(QDialog):
         f.viewFiles.clicked.connect(self.onViewFiles)
         f.delete_2.clicked.connect(self.onDelete)
         f.config.clicked.connect(self.onConfig)
+        self.form.addonList.currentRowChanged.connect(self._onAddonItemSelected)
         self.redrawAddons()
         self.show()
 
@@ -301,6 +313,13 @@ class AddonsDialog(QDialog):
         self.form.addonList.addItems([r[0] for r in self.addons])
         if self.addons:
             self.form.addonList.setCurrentRow(0)
+
+    def _onAddonItemSelected(self, row_int):
+        try:
+            addon = self.addons[row_int][1]
+        except IndexError:
+            addon = ''
+        self.form.viewPage.setEnabled(bool (re.match(r"^\d+$", addon)))
 
     def annotatedName(self, dir):
         meta = self.mgr.addonMeta(dir)
@@ -316,7 +335,7 @@ class AddonsDialog(QDialog):
     def onlyOneSelected(self):
         dirs = self.selectedAddons()
         if len(dirs) != 1:
-            showInfo("Please select a single add-on first.")
+            showInfo(_("Please select a single add-on first."))
             return
         return dirs[0]
 
@@ -330,7 +349,7 @@ class AddonsDialog(QDialog):
         if not addon:
             return
         if re.match(r"^\d+$", addon):
-            openLink(aqt.appShared + f"info/{addon}")
+            openLink(aqt.appShared + "info/{}".format(addon))
         else:
             showWarning(_("Add-on was not downloaded from AnkiWeb."))
 
@@ -412,7 +431,7 @@ class GetAddons(QDialog):
         self.form = aqt.forms.getaddons.Ui_Dialog()
         self.form.setupUi(self)
         b = self.form.buttonBox.addButton(
-            _("Browse"), QDialogButtonBox.ActionRole)
+            _("Browse Add-ons"), QDialogButtonBox.ActionRole)
         b.clicked.connect(self.onBrowse)
         restoreGeom(self, "getaddons", adjustSize=True)
         self.exec_()
@@ -454,12 +473,12 @@ class ConfigEditor(QDialog):
         restore = self.form.buttonBox.button(QDialogButtonBox.RestoreDefaults)
         restore.clicked.connect(self.onRestoreDefaults)
         self.updateHelp()
-        self.updateText()
+        self.updateText(self.conf)
         self.show()
 
     def onRestoreDefaults(self):
-        self.conf = self.mgr.addonConfigDefaults(self.addon)
-        self.updateText()
+        default_conf = self.mgr.addonConfigDefaults(self.addon)
+        self.updateText(default_conf)
 
     def updateHelp(self):
         txt = self.mgr.addonConfigHelp(self.addon)
@@ -468,17 +487,23 @@ class ConfigEditor(QDialog):
         else:
             self.form.scrollArea.setVisible(False)
 
-    def updateText(self):
+    def updateText(self, conf):
         self.form.editor.setPlainText(
-            json.dumps(self.conf,sort_keys=True,indent=4, separators=(',', ': ')))
+            json.dumps(conf,sort_keys=True,indent=4, separators=(',', ': ')))
 
     def accept(self):
         txt = self.form.editor.toPlainText()
         try:
-            self.conf = json.loads(txt)
+            new_conf = json.loads(txt)
         except Exception as e:
             showInfo(_("Invalid configuration: ") + repr(e))
             return
 
-        self.mgr.writeConfig(self.addon, self.conf)
+        if new_conf != self.conf:
+            self.mgr.writeConfig(self.addon, new_conf)
+            # does the add-on define an action to be fired?
+            act = self.mgr.configUpdatedAction(self.addon)
+            if act:
+                act(new_conf)
+
         super().accept()

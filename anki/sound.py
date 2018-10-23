@@ -5,7 +5,7 @@
 import html
 import re, sys, threading, time, subprocess, os, atexit
 import  random
-from anki.hooks import addHook
+from anki.hooks import addHook, runHook
 from anki.utils import  tmpdir, isWin, isMac, isLin
 
 # Shared utils
@@ -84,19 +84,30 @@ def retryWait(proc):
 # MPV
 ##########################################################################
 
-from anki.mpv import MPV
+from anki.mpv import MPV, MPVBase
 
 mpvPath, mpvEnv = _packagedCmd(["mpv"])
+
+def setMpvConfigBase(base):
+    global mpvEnv
+    mpvEnv['XDG_CONFIG_HOME'] = base
 
 class MpvManager(MPV):
 
     executable = mpvPath[0]
     popenEnv = mpvEnv
 
+    if not isLin:
+        default_argv = MPVBase.default_argv + [
+            "--input-media-keys=no",
+        ]
+
     def __init__(self):
         super().__init__(window_id=None, debug=False)
 
     def queueFile(self, file):
+        runHook("mpvWillPlay", file)
+
         path = os.path.join(os.getcwd(), file)
         self.command("loadfile", path, "append-play")
 
@@ -108,6 +119,9 @@ class MpvManager(MPV):
 
     def seekRelative(self, secs):
         self.command("seek", secs, "relative")
+
+    def on_idle(self):
+        runHook("mpvIdleHook")
 
 mpvManager = None
 
@@ -129,6 +143,8 @@ def cleanupMPV():
 ##########################################################################
 
 mplayerCmd = ["mplayer", "-really-quiet", "-noautosub"]
+if isWin:
+    mplayerCmd += ["-ao", "win32"]
 
 mplayerQueue = []
 mplayerManager = None

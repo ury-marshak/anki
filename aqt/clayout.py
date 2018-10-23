@@ -330,7 +330,7 @@ Please create a new card type first."""))
                 res = "<hr id=answer>" + res
             return res
         if type == 'q':
-            repl = "<input id='typeans' type=text value='exomple'>"
+            repl = "<input id='typeans' type=text value='exomple' readonly='readonly'>"
             repl = "<center>%s</center>" % repl
         else:
             repl = answerRepl
@@ -464,8 +464,9 @@ adjust the template manually to switch the question and answer."""))
             t['bfont'] = f.font.currentFont().family()
             t['bsize'] = f.fontSize.value()
         else:
-            del t['bfont']
-            del t['bsize']
+            for key in ("bfont", "bsize"):
+                if key in t:
+                    del t[key]
 
     def onTargetDeck(self):
         from aqt.tagedit import TagEdit

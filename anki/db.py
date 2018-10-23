@@ -10,8 +10,9 @@ from sqlite3 import dbapi2 as sqlite
 DBError = sqlite.Error
 
 class DB:
-    def __init__(self, path, timeout=0):
+    def __init__(self, path, timeout=5):
         self._db = sqlite.connect(path, timeout=timeout)
+        self._db.text_factory = self._textFactory
         self._path = path
         self.echo = os.environ.get("DBECHO")
         self.mod = False
@@ -79,6 +80,7 @@ class DB:
         return [x[0] for x in self.execute(*a, **kw)]
 
     def close(self):
+        self._db.text_factory = None
         self._db.close()
 
     def set_progress_handler(self, *args):
@@ -102,3 +104,7 @@ class DB:
             self._db.isolation_level = None
         else:
             self._db.isolation_level = ''
+
+    # strip out invalid utf-8 when reading from db
+    def _textFactory(self, data):
+        return str(data, errors="ignore")

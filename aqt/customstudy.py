@@ -16,7 +16,8 @@ RADIO_CRAM = 6
 
 TYPE_NEW = 0
 TYPE_DUE = 1
-TYPE_ALL = 2
+TYPE_REVIEW = 2
+TYPE_ALL = 3
 
 class CustomStudy(QDialog):
     def __init__(self, mw):
@@ -133,19 +134,15 @@ class CustomStudy(QDialog):
             dyn = self.mw.col.decks.get(did)
         # and then set various options
         if i == RADIO_FORGOT:
-            dyn['delays'] = [1]
             dyn['terms'][0] = ['rated:%d:1' % spin, DYN_MAX_SIZE, DYN_RANDOM]
             dyn['resched'] = False
         elif i == RADIO_AHEAD:
-            dyn['delays'] = None
             dyn['terms'][0] = ['prop:due<=%d' % spin, DYN_MAX_SIZE, DYN_DUE]
             dyn['resched'] = True
         elif i == RADIO_PREVIEW:
-            dyn['delays'] = None
             dyn['terms'][0] = ['is:new added:%s'%spin, DYN_MAX_SIZE, DYN_OLDEST]
             dyn['resched'] = False
         elif i == RADIO_CRAM:
-            dyn['delays'] = None
             type = f.cardType.currentRow()
             if type == TYPE_NEW:
                 terms = "is:new "
@@ -154,6 +151,10 @@ class CustomStudy(QDialog):
             elif type == TYPE_DUE:
                 terms = "is:due "
                 ord = DYN_DUE
+                dyn['resched'] = True
+            elif type == TYPE_REVIEW:
+                terms = "-is:new "
+                ord = DYN_RANDOM
                 dyn['resched'] = True
             else:
                 terms = ""
