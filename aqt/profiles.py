@@ -133,6 +133,12 @@ a flash drive.""" % self.base)
     def _unpickle(self, data):
         class Unpickler(pickle.Unpickler):
             def find_class(self, module, name):
+                if module == "PyQt5.sip":
+                    try:
+                        import PyQt5.sip
+                    except:
+                        # use old sip location
+                        module = "sip"
                 fn = super().find_class(module, name)
                 if module == "sip" and name == "_unpickle_type":
                     def wrapper(mod, obj, args):
@@ -156,6 +162,11 @@ a flash drive.""" % self.base)
         try:
             self.profile = self._unpickle(data)
         except:
+            QMessageBox.warning(
+                None, _("Profile Corrupt"), _("""\
+Anki could not read your profile data. Window sizes and your sync login \
+details have been forgotten."""))
+
             print("resetting corrupt profile")
             self.profile = profileConf.copy()
             self.save()

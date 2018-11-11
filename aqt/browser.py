@@ -417,6 +417,8 @@ class Browser(QMainWindow):
         f.filter.clicked.connect(self.onFilterButton)
         # edit
         f.actionUndo.triggered.connect(self.mw.onUndo)
+        if qtminor < 11:
+            f.actionUndo.setShortcut(QKeySequence(_("Ctrl+Alt+Z")))
         f.actionInvertSelection.triggered.connect(self.invertSelection)
         f.actionSelectNotes.triggered.connect(self.selectNotes)
         if not isMac:
@@ -824,7 +826,6 @@ by clicking on one on the left."""))
         p = QPalette()
         p.setColor(QPalette.Base, p.window().color())
         self.sidebarTree.setPalette(p)
-        self.sidebarDockWidget.setVisible(False)
         self.sidebarDockWidget.setFloating(False)
         self.sidebarDockWidget.visibilityChanged.connect(self.onSidebarVisChanged)
         self.sidebarDockWidget.setTitleBarWidget(QWidget())
