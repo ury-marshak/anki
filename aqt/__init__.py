@@ -49,6 +49,7 @@ from anki.utils import checksum
 # -- setting silentlyClose=True to have it close immediately
 # -- define a closeWithCallback() method
 # - have the window opened via aqt.dialogs.open(<name>, self)
+# - have a method reopen(*args), called if the user ask to open the window a second time. Arguments passed are the same than for original opening.
 
 #- make preferences modal? cmd+q does wrong thing
 
@@ -74,6 +75,8 @@ class DialogManager:
                 instance.setWindowState(instance.windowState() & ~Qt.WindowMinimized)
             instance.activateWindow()
             instance.raise_()
+            if hasattr(instance,"reopen"):
+                instance.reopen(*args)
             return instance
         else:
             instance = creator(*args)
@@ -336,6 +339,13 @@ environment points to a valid, writable folder.""")
 
     # i18n
     setupLang(pm, app, opts.lang)
+
+    if isLin and pm.glMode() == "auto":
+        from aqt.utils import gfxDriverIsBroken
+        if gfxDriverIsBroken():
+            pm.nextGlMode()
+            QMessageBox.critical(None, "Error", "Your video driver is incompatible. Please start Anki again, and Anki will switch to a slower, more compatible mode.")
+            sys.exit(1)
 
     # remaining pm init
     pm.ensureProfile()

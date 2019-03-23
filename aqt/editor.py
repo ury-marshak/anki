@@ -33,9 +33,9 @@ audio =  ("wav", "mp3", "ogg", "flac", "mp4", "swf", "mov", "mpeg", "mkv", "m4a"
 _html = """
 <style>
 html { background: %s; }
-#topbuts { background: %s; }
+#topbutsOuter { background: %s; }
 </style>
-<div id="topbuts">%s</div>
+<div id="topbutsOuter"><div id="topbuts" class="clearfix">%s</div></div>
 <div id="fields"></div>
 <div id="dupes" style="display:none;"><a href="#" onclick="pycmd('dupes');return false;">%s</a></div>
 """
@@ -98,13 +98,15 @@ class Editor:
         righttopbtns = runFilter("setupEditorButtons", righttopbtns, self)
         topbuts = """
             <div id="topbutsleft" style="float:left;">
-                <button onclick="pycmd('fields')">%(flds)s...</button>
-                <button onclick="pycmd('cards')">%(cards)s...</button>
+                <button title='%(fldsTitle)s' onclick="pycmd('fields')">%(flds)s...</button>
+                <button title='%(cardsTitle)s' onclick="pycmd('cards')">%(cards)s...</button>
             </div>
             <div id="topbutsright" style="float:right;">
                 %(rightbts)s
             </div>
-        """ % dict(flds=_("Fields"), cards=_("Cards"), rightbts="".join(righttopbtns))
+        """ % dict(flds=_("Fields"), cards=_("Cards"), rightbts="".join(righttopbtns),
+                   fldsTitle=_("Customize Fields"),
+                   cardsTitle=shortcut(_("Customize Card Templates (Ctrl+L)")))
         bgcol = self.mw.app.palette().window().color().name()
         # then load page
         self.web.stdHtml(_html % (
@@ -252,7 +254,6 @@ class Editor:
                 return
             txt = urllib.parse.unquote(txt)
             txt = unicodedata.normalize("NFC", txt)
-            txt = self.mungeHTML(txt)
             # misbehaving apps may include a null byte in the text
             txt = txt.replace("\x00", "")
             # reverse the url quoting we added to get images to display
@@ -283,10 +284,6 @@ class Editor:
             self._links[cmd](self)
         else:
             print("uncaught cmd", cmd)
-
-    def mungeHTML(self, txt):
-        txt = re.sub(r"<br>$", "", txt)
-        return txt
 
     # Setting/unsetting the current note
     ######################################################################
@@ -401,6 +398,7 @@ class Editor:
             warnings.simplefilter('ignore', UserWarning)
             html = str(BeautifulSoup(html, "html.parser"))
         self.note.fields[field] = html
+        self.note.flush()
         self.loadNote(focusTo=field)
 
     # Tag handling
